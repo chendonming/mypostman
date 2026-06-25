@@ -1,0 +1,58 @@
+export interface HeaderInput {
+  key: string;
+  value: string;
+  enabled: boolean;
+}
+
+export interface TimingInfo {
+  dns_lookup_ms: number;
+  tcp_connect_ms: number;
+  tls_handshake_ms: number;
+  ttfb_ms: number;
+  download_ms: number;
+  total_ms: number;
+}
+
+export interface ResponseData {
+  status: number;
+  status_text: string;
+  headers: Record<string, string>;
+  body: string;
+  content_type: string | null;
+  size: number;
+  size_label: string;
+  timing: TimingInfo;
+}
+
+export interface Collection {
+  id: string;
+  name: string;
+  requests: RequestItem[];
+}
+
+export interface RequestItem {
+  id: string;
+  name: string;
+  method: string;
+  url: string;
+}
+
+export interface HistoryItem {
+  id: string;
+  method: string;
+  url: string;
+  status: number | null;
+  timestamp: number;
+}
+
+export type HttpMethod =
+  | "GET"
+  | "POST"
+  | "PUT"
+  | "PATCH"
+  | "DELETE"
+  | "HEAD"
+  | "OPTIONS";
+
+export type RequestTab = "params" | "headers" | "body";
+export type SidebarTab = "collections" | "history";

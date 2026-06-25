@@ -1,0 +1,90 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: #2E3348 transparent;
+  }
+
+  *::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    background-color: #2E3348;
+    border-radius: 3px;
+  }
+
+  *::-webkit-scrollbar-thumb:hover {
+    background-color: #3E4360;
+  }
+
+  input,
+  textarea,
+  select {
+    @apply outline-none;
+  }
+
+  input:focus,
+  textarea:focus,
+  select:focus {
+    @apply ring-1 ring-pulse-accent/40 border-pulse-accent/50;
+  }
+}
+
+@layer components {
+  .panel {
+    @apply bg-pulse-surface border border-pulse-border rounded-lg;
+  }
+
+  .panel-header {
+    @apply flex items-center gap-2 px-4 py-2 text-xs font-medium text-pulse-text-secondary uppercase tracking-wider border-b border-pulse-border;
+  }
+
+  .btn-primary {
+    @apply inline-flex items-center gap-1.5 px-4 py-1.5 text-sm font-medium rounded-lg
+           bg-pulse-accent text-pulse-deepest hover:bg-pulse-accent-soft
+           transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-ghost {
+    @apply inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg
+           text-pulse-text-secondary hover:text-pulse-text-primary hover:bg-pulse-hover
+           transition-colors duration-150;
+  }
+
+  .input-field {
+    @apply w-full bg-pulse-deepest border border-pulse-border rounded-lg
+           px-3 py-1.5 text-sm text-pulse-text-primary placeholder-pulse-text-muted
+           transition-colors duration-150;
+  }
+
+  .tab-active {
+    @apply text-pulse-accent border-b-2 border-pulse-accent;
+  }
+
+  .tab-inactive {
+    @apply text-pulse-text-muted hover:text-pulse-text-secondary border-b-2 border-transparent hover:border-pulse-border;
+  }
+
+  .badge {
+    @apply inline-flex items-center px-2 py-0.5 text-xs font-medium rounded-md;
+  }
+
+  .method-badge {
+    @apply badge font-mono font-semibold text-xs;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}
