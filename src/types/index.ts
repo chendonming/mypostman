@@ -54,5 +54,12 @@ export type HttpMethod =
   | "HEAD"
   | "OPTIONS";
 
-export type RequestTab = "params" | "headers" | "body";
+export type AuthType = "none" | "bearer";
+
+export interface AuthConfig {
+  type: AuthType;
+  bearerToken: string;
+}
+
+export type RequestTab = "params" | "auth" | "headers" | "body";
 export type SidebarTab = "collections" | "history";

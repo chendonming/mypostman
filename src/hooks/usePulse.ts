@@ -8,6 +8,7 @@ import type {
   ResponseData,
   Collection,
   HistoryItem,
+  AuthType,
 } from "../types";
 
 export function usePulse() {
@@ -18,6 +19,8 @@ export function usePulse() {
   ]);
   const [body, setBody] = useState("");
   const [contentType, setContentType] = useState("application/json");
+  const [authType, setAuthType] = useState<AuthType>("none");
+  const [bearerToken, setBearerToken] = useState("");
   const [rawParams, setRawParams] = useState<HeaderInput[]>([]);
   const [requestTab, setRequestTab] = useState<RequestTab>("headers");
 
@@ -58,7 +61,25 @@ export function usePulse() {
     setResponse(null);
 
     try {
-      const cleanHeaders = headers.filter((h) => h.key.trim() !== "");
+      let cleanHeaders = headers.filter((h) => h.key.trim() !== "");
+
+      // Inject auth header if Bearer Token is configured
+      if (authType === "bearer" && bearerToken.trim()) {
+        let token = bearerToken.trim();
+        if (!token.startsWith("Bearer ")) {
+          token = `Bearer ${token}`;
+        }
+        // Remove any existing Authorization header to avoid duplicates
+        cleanHeaders = cleanHeaders.filter(
+          (h) => h.key.toLowerCase() !== "authorization",
+        );
+        cleanHeaders.push({
+          key: "Authorization",
+          value: token,
+          enabled: true,
+        });
+      }
+
       const result = await invoke<ResponseData>("send_request", {
         input: {
           method,
@@ -124,6 +145,10 @@ export function usePulse() {
   }, []);
 
   return {
+    authType,
+    setAuthType,
+    bearerToken,
+    setBearerToken,
     method,
     setMethod,
     url,

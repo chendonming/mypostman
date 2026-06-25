@@ -1,5 +1,6 @@
 import { useRef, useEffect } from "react";
-import type { HeaderInput, RequestTab, HttpMethod } from "../types";
+import type { HeaderInput, RequestTab, HttpMethod, AuthType } from "../types";
+import AuthPanel from "./AuthPanel";
 
 interface RequestPanelProps {
   method: HttpMethod;
@@ -18,6 +19,10 @@ interface RequestPanelProps {
   onRequestTabChange: (t: RequestTab) => void;
   isLoading: boolean;
   onSend: () => void;
+  authType: AuthType;
+  onAuthTypeChange: (t: AuthType) => void;
+  bearerToken: string;
+  onBearerTokenChange: (t: string) => void;
 }
 
 const METHODS: HttpMethod[] = [
@@ -65,6 +70,10 @@ export default function RequestPanel({
   onRequestTabChange,
   isLoading,
   onSend,
+  authType,
+  onAuthTypeChange,
+  bearerToken,
+  onBearerTokenChange,
 }: RequestPanelProps) {
   const urlRef = useRef<HTMLInputElement>(null);
 
@@ -198,6 +207,21 @@ export default function RequestPanel({
       {/* Tabs */}
       <div className="flex items-center gap-1 px-3">
         <button
+          onClick={() => onRequestTabChange("auth")}
+          className={`pb-2 pt-1 px-3 text-xs font-medium transition-colors border-b-2 ${
+            requestTab === "auth"
+              ? "text-pulse-accent border-pulse-accent"
+              : "text-pulse-text-muted border-transparent hover:text-pulse-text-secondary hover:border-pulse-border"
+          }`}
+        >
+          Auth
+          {authType !== "none" && (
+            <span className="ml-1.5 px-1 py-0.5 text-[10px] rounded bg-pulse-accent/10 text-pulse-accent">
+              Bearer
+            </span>
+          )}
+        </button>
+        <button
           onClick={() => onRequestTabChange("headers")}
           className={`pb-2 pt-1 px-3 text-xs font-medium transition-colors border-b-2 ${
             requestTab === "headers"
@@ -231,6 +255,15 @@ export default function RequestPanel({
 
       {/* Tab Content */}
       <div className="max-h-52 overflow-y-auto border-t border-pulse-border">
+        {requestTab === "auth" && (
+          <AuthPanel
+            authType={authType}
+            onAuthTypeChange={onAuthTypeChange}
+            bearerToken={bearerToken}
+            onBearerTokenChange={onBearerTokenChange}
+          />
+        )}
+
         {requestTab === "headers" && (
           <div className="p-2 space-y-1">
             <div className="grid grid-cols-[1fr_1fr_24px] gap-1.5 text-[11px] text-pulse-text-muted font-medium px-2 pb-1">

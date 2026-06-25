@@ -35,6 +35,10 @@ export default function App() {
           onRequestTabChange={state.setRequestTab}
           isLoading={state.isLoading}
           onSend={state.sendRequest}
+          authType={state.authType}
+          onAuthTypeChange={state.setAuthType}
+          bearerToken={state.bearerToken}
+          onBearerTokenChange={state.setBearerToken}
         />
 
         <div className="flex-1 min-h-0 border-t border-pulse-border">
