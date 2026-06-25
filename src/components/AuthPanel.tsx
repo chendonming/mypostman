@@ -22,7 +22,7 @@ const AUTH_OPTIONS: { value: AuthType; label: string }[] = [
  * 支持三种模式：
  * - No Auth：无认证
  * - Inherit from collection：继承所属集合的认证配置
- * - Bearer Token：手动输入 Bearer Token（会自动添加 "Bearer " 前缀）
+ * - Bearer Token：手动输入 Bearer Token（直接使用 token 原始值，不做前缀处理）
  */
 export default function AuthPanel({
   authType,
@@ -88,8 +88,7 @@ export default function AuthPanel({
             <p className="text-[11px] text-pulse-text-muted pl-[5.5rem]">
               Will be sent as:{" "}
               <code className="text-pulse-accent">
-                Authorization: Bearer{" "}
-                {bearerToken.trim().replace(/^Bearer\s+/i, "")}
+                Authorization: {bearerToken.trim()}
               </code>
             </p>
           )}

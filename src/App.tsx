@@ -2,6 +2,7 @@ import { usePulse } from "./hooks/usePulse";
 import Sidebar from "./components/Sidebar";
 import RequestPanel from "./components/RequestPanel";
 import ResponsePanel from "./components/ResponsePanel";
+import SaveDialog from "./components/SaveDialog";
 
 /**
  * 应用根组件
@@ -89,6 +90,14 @@ export default function App() {
           />
         </div>
       </main>
+
+      {/* 请求保存命名对话框（替代 window.prompt） */}
+      <SaveDialog
+        visible={state.saveDialogVisible}
+        defaultName={state.saveDialogName}
+        onConfirm={state.confirmSave}
+        onCancel={state.cancelSave}
+      />
     </div>
   );
 }

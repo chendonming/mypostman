@@ -216,18 +216,14 @@ export function usePulse() {
         }
       }
 
-      // 如果是 Bearer Token 认证，注入 Authorization 请求头
+      // Bearer Token 认证：直接使用 token 原始值作为 Authorization 请求头，不做前缀处理
       if (resolvedAuthType === "bearer" && resolvedBearerToken.trim()) {
-        let token = resolvedBearerToken.trim();
-        if (!token.startsWith("Bearer ")) {
-          token = `Bearer ${token}`;
-        }
         cleanHeaders = cleanHeaders.filter(
           (h) => h.key.toLowerCase() !== "authorization",
         );
         cleanHeaders.push({
           key: "Authorization",
-          value: token,
+          value: resolvedBearerToken.trim(),
           enabled: true,
         });
       }
@@ -392,6 +388,10 @@ export function usePulse() {
     setEditingRequest(null);
   }, []);
 
+  // ── 内联保存命名对话框状态 ──
+  const [saveDialogVisible, setSaveDialogVisible] = useState(false);
+  const [saveDialogName, setSaveDialogName] = useState("");
+
   /**
    * 保存当前请求到集合
    * - 如果正在编辑已有请求 → 原地更新
@@ -435,46 +435,12 @@ export function usePulse() {
         ),
       );
     } else {
-      // 新建请求（弹出命名对话框）
-      const name =
-        window.prompt(
-          "Request name:",
-          url.trim()
-            ? url.trim().split("/").filter(Boolean).pop() || url.trim()
-            : "New Request",
-        ) ?? "";
-      if (!name.trim()) return;
-
-      const newReq: RequestItem = {
-        id: crypto.randomUUID(),
-        name: name.trim(),
-        method,
-        url: url.trim(),
-        headers: filteredHeaders,
-        body,
-        contentType,
-        authType,
-        bearerToken,
-        params: rawParams,
-      };
-
-      let colId: string;
-      if (collections.length === 0) {
-        colId = crypto.randomUUID();
-        setCollections([
-          { id: colId, name: "My Collection", authType: "inherit", bearerToken: "", requests: [newReq] },
-        ]);
-      } else {
-        colId = collections[0].id;
-        setCollections((prev) =>
-          prev.map((c) =>
-            c.id === colId
-              ? { ...c, requests: [...c.requests, newReq] }
-              : c,
-          ),
-        );
-      }
-      setEditingRequest({ collectionId: colId, requestId: newReq.id });
+      // 新建请求：弹出内联命名对话框
+      const defaultName = url.trim()
+        ? url.trim().split("/").filter(Boolean).pop() || url.trim()
+        : "New Request";
+      setSaveDialogName(defaultName);
+      setSaveDialogVisible(true);
     }
   }, [
     method,
@@ -488,6 +454,59 @@ export function usePulse() {
     editingRequest,
     collections,
   ]);
+
+  /**
+   * 确认保存新请求（内联对话框回调）
+   */
+  const confirmSave = useCallback(() => {
+    const name = saveDialogName.trim();
+    if (!name) return;
+
+    const filteredHeaders = headers
+      .filter((h) => h.key.trim())
+      .concat(
+        headers.some((h) => h.key.trim()) ? [] : [{ key: "", value: "", enabled: true } as HeaderInput],
+      );
+    if (filteredHeaders.length === 0) {
+      filteredHeaders.push({ key: "", value: "", enabled: true });
+    }
+
+    const newReq: RequestItem = {
+      id: crypto.randomUUID(),
+      name,
+      method,
+      url: url.trim(),
+      headers: filteredHeaders,
+      body,
+      contentType,
+      authType,
+      bearerToken,
+      params: rawParams,
+    };
+
+    let colId: string;
+    if (collections.length === 0) {
+      colId = crypto.randomUUID();
+      setCollections([
+        { id: colId, name: "My Collection", authType: "inherit", bearerToken: "", requests: [newReq] },
+      ]);
+    } else {
+      colId = collections[0].id;
+      setCollections((prev) =>
+        prev.map((c) =>
+          c.id === colId
+            ? { ...c, requests: [...c.requests, newReq] }
+            : c,
+        ),
+      );
+    }
+    setEditingRequest({ collectionId: colId, requestId: newReq.id });
+    setSaveDialogVisible(false);
+  }, [saveDialogName, method, url, headers, body, contentType, authType, bearerToken, rawParams, collections]);
+
+  const cancelSave = useCallback(() => {
+    setSaveDialogVisible(false);
+  }, []);
 
   /** 删除集合中的某个请求 */
   const deleteCollectionRequest = useCallback(
@@ -751,6 +770,12 @@ export function usePulse() {
     moveCollection,
     editingCollectionName,
     editingRequest,
+    /* ── 保存命名对话框 ── */
+    saveDialogVisible,
+    saveDialogName,
+    setSaveDialogName,
+    confirmSave,
+    cancelSave,
     /* ── 环境 CRUD ── */
     environments,
     activeEnvironmentId,
