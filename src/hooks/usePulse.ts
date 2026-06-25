@@ -16,12 +16,19 @@ import type {
   CollectionData,
 } from "../types";
 
-/* ── Query-string helpers ── */
+// ============================================================
+// 工具函数：URL 查询字符串解析
+// ============================================================
 
+/**
+ * 从 URL 中解析出查询参数列表
+ * 例如：https://api.example.com/users?page=1&limit=10
+ * → [{ key: "page", value: "1", enabled: true }, { key: "limit", value: "10", enabled: true }]
+ */
 function parseUrlParams(url: string): HeaderInput[] {
   const qIndex = url.indexOf("?");
   if (qIndex === -1) return [{ key: "", value: "", enabled: true }];
-  const query = url.slice(qIndex + 1).split("#")[0]; // strip hash
+  const query = url.slice(qIndex + 1).split("#")[0]; // 移除 hash 片段
   if (!query) return [{ key: "", value: "", enabled: true }];
   const pairs = query.split("&").filter(Boolean);
   if (pairs.length === 0) return [{ key: "", value: "", enabled: true }];
@@ -37,11 +44,13 @@ function parseUrlParams(url: string): HeaderInput[] {
   });
 }
 
+/** 获取 URL 的基础部分（? 之前的内容） */
 function getBaseUrl(url: string): string {
   const q = url.indexOf("?");
   return q >= 0 ? url.slice(0, q) : url;
 }
 
+/** 将基础 URL 和查询参数组合为完整 URL */
 function buildUrlWithParams(base: string, params: HeaderInput[]): string {
   const active = params.filter((p) => p.key.trim() && p.enabled);
   if (active.length === 0) return base;
@@ -51,7 +60,15 @@ function buildUrlWithParams(base: string, params: HeaderInput[]): string {
   return `${base}?${qs}`;
 }
 
+// ============================================================
+// 应用状态管理 Hook
+//
+// 设计理念：单一 Hook 管理所有应用状态，通过 props 下发给子组件。
+// 不使用 Context 或 Redux——对当前规模而言 props 穿透是刻意的简化。
+// ============================================================
+
 export function usePulse() {
+  // ── 请求参数状态 ──
   const [method, setMethod] = useState<HttpMethod>("GET");
   const [url, setUrl] = useState("");
   const [headers, setHeaders] = useState<HeaderInput[]>([
@@ -59,19 +76,24 @@ export function usePulse() {
   ]);
   const [body, setBody] = useState("");
   const [contentType, setContentType] = useState("application/json");
+  // 请求级认证
   const [authType, setAuthType] = useState<AuthType>("none");
   const [bearerToken, setBearerToken] = useState("");
+  // URL 查询参数（与 URL 双向同步）
   const [rawParams, setRawParams] = useState<HeaderInput[]>([
     { key: "", value: "", enabled: true },
   ]);
   const [requestTab, setRequestTab] = useState<RequestTab>("headers");
 
+  // ── 响应状态 ──
   const [response, setResponse] = useState<ResponseData | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // 响应面板 Tab（Body / Headers）
   const [responseTab, setResponseTab] = useState<"body" | "headers">("body");
 
+  // ── 持久化数据 ──
   const [collections, setCollections] = useState<Collection[]>(() => [
     {
       id: "default",
@@ -109,19 +131,21 @@ export function usePulse() {
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>("collections");
 
-  /* ── Environment state ── */
+  // ── 环境变量 ──
   const [environments, setEnvironments] = useState<Environment[]>([]);
   const [activeEnvironmentId, setActiveEnvironmentId] = useState<string | null>(null);
-  const [envLoaded, setEnvLoaded] = useState(false);
-  const [collectionsLoaded, setCollectionsLoaded] = useState(false);
+  const [envLoaded, setEnvLoaded] = useState(false);          // 标记：环境数据是否已从 Rust 加载完成
+  const [collectionsLoaded, setCollectionsLoaded] = useState(false);  // 标记：集合数据是否已加载完成
 
-  /* ── Collection editing state ── */
+  // ── 当前编辑的请求信息（用于保存时定位到集合） ──
   const [editingRequest, setEditingRequest] = useState<{
     collectionId: string;
     requestId: string;
   } | null>(null);
 
-  // Load environments from Rust on mount
+  // ── 加载与持久化：环境变量 ──
+
+  // 启动时从 Rust 加载环境变量（通过 Tauri invoke）
   useEffect(() => {
     invoke<EnvironmentData>("load_environments")
       .then((data) => {
@@ -132,7 +156,7 @@ export function usePulse() {
       .finally(() => setEnvLoaded(true));
   }, []);
 
-  // Persist environments to Rust whenever they change (skip the initial load)
+  // 环境数据变化时自动持久化到 Rust（跳过初始加载）
   useEffect(() => {
     if (!envLoaded) return;
     invoke("save_environments", {
@@ -140,7 +164,9 @@ export function usePulse() {
     }).catch((e) => console.error("Failed to save environments:", e));
   }, [environments, activeEnvironmentId, envLoaded]);
 
-  // Load collections from Rust on mount
+  // ── 加载与持久化：请求集合 ──
+
+  // 启动时从 Rust 加载集合数据
   useEffect(() => {
     invoke<CollectionData | null>("load_collections")
       .then((data) => {
@@ -152,13 +178,15 @@ export function usePulse() {
       .finally(() => setCollectionsLoaded(true));
   }, []);
 
-  // Persist collections to Rust whenever they change (skip the initial load)
+  // 集合数据变化时自动持久化到 Rust（跳过初始加载）
   useEffect(() => {
     if (!collectionsLoaded) return;
     invoke("save_collections", {
       data: { collections },
     }).catch((e) => console.error("Failed to save collections:", e));
   }, [collections, collectionsLoaded]);
+
+  // ── 核心：发送 HTTP 请求 ──
 
   const sendRequest = useCallback(async () => {
     if (!url.trim()) return;
@@ -170,13 +198,14 @@ export function usePulse() {
     try {
       let cleanHeaders = headers.filter((h) => h.key.trim() !== "");
 
-      // Resolve auth: inherit → look up collection's auth
+      // 解析认证继承链：请求级 "inherit" → 查找所属集合的认证配置
       let resolvedAuthType = authType;
       let resolvedBearerToken = bearerToken;
       if (authType === "inherit") {
         if (editingRequest) {
           const col = collections.find((c) => c.id === editingRequest.collectionId);
           if (col) {
+            // 如果集合也是 "inherit"，退化为 "none"
             resolvedAuthType = col.authType === "inherit" ? "none" : col.authType;
             resolvedBearerToken = col.bearerToken;
           } else {
@@ -187,7 +216,7 @@ export function usePulse() {
         }
       }
 
-      // Inject auth header if Bearer Token is configured
+      // 如果是 Bearer Token 认证，注入 Authorization 请求头
       if (resolvedAuthType === "bearer" && resolvedBearerToken.trim()) {
         let token = resolvedBearerToken.trim();
         if (!token.startsWith("Bearer ")) {
@@ -203,7 +232,7 @@ export function usePulse() {
         });
       }
 
-      // Get active environment's enabled variables for substitution
+      // 获取当前激活环境中启用的变量（用于 {{key}} 模板替换）
       const activeEnv = environments.find((e) => e.id === activeEnvironmentId);
       const activeVars: EnvironmentVariable[] =
         activeEnv?.variables.filter((v) => v.enabled) ?? [];
@@ -219,6 +248,7 @@ export function usePulse() {
         variables: activeVars,
       });
       setResponse(result);
+      // 添加到历史记录（最多保留 50 条）
       setHistory((prev) => [
         {
           id: crypto.randomUUID(),
@@ -235,6 +265,8 @@ export function usePulse() {
       setIsLoading(false);
     }
   }, [method, url, headers, body, contentType, authType, bearerToken, environments, activeEnvironmentId, collections, editingRequest]);
+
+  // ── 请求头 CRUD ──
 
   const addHeader = useCallback(() => {
     setHeaders((prev) => [...prev, { key: "", value: "", enabled: true }]);
@@ -255,7 +287,11 @@ export function usePulse() {
     setHeaders((prev) => prev.filter((_, i) => i !== index));
   }, []);
 
-  /* ── URL / Params bidirectional sync ── */
+  // ── URL / 查询参数双向同步 ──
+  //
+  // 用户在 URL 输入框中输入时 → 自动解析出参数列表
+  // 用户在参数表格中修改时   → 自动更新 URL
+  // 使用 skipUrlSync ref 防止循环更新
 
   const skipUrlSync = useRef(false);
   const prevParamsJson = useRef("");
@@ -266,7 +302,7 @@ export function usePulse() {
     setRawParams(parseUrlParams(newUrl));
   }, []);
 
-  // Watch rawParams changes → update URL (skip when the change came from handleUrlChange)
+  // 监听参数变化 → 更新 URL（排除来自 handleUrlChange 的触发）
   useEffect(() => {
     if (skipUrlSync.current) {
       skipUrlSync.current = false;
@@ -301,12 +337,16 @@ export function usePulse() {
     setRawParams((prev) => prev.filter((_, i) => i !== index));
   }, []);
 
+  // ── 从历史加载请求 ──
+
   const loadFromHistory = useCallback((item: HistoryItem) => {
     setMethod(item.method as HttpMethod);
     setUrl(item.url);
     setRawParams(parseUrlParams(item.url));
     setEditingRequest(null);
   }, []);
+
+  // ── 从集合加载请求 ──
 
   const loadCollectionRequest = useCallback(
     (item: RequestItem, collectionId: string) => {
@@ -327,13 +367,17 @@ export function usePulse() {
     [],
   );
 
+  // 清除当前响应和错误
   const clearResponse = useCallback(() => {
     setResponse(null);
     setError(null);
   }, []);
 
-  /* ── Collection CRUD ── */
+  // ============================================================
+  // 集合 CRUD
+  // ============================================================
 
+  /** 创建新请求（清空当前请求表单，重置编辑状态） */
   const newRequest = useCallback(() => {
     setMethod("GET");
     setUrl("");
@@ -348,6 +392,11 @@ export function usePulse() {
     setEditingRequest(null);
   }, []);
 
+  /**
+   * 保存当前请求到集合
+   * - 如果正在编辑已有请求 → 原地更新
+   * - 如果是新请求 → 弹出命名对话框，添加到第一个集合（或创建新集合）
+   */
   const saveCurrentRequest = useCallback(() => {
     const filteredHeaders = headers
       .filter((h) => h.key.trim())
@@ -359,7 +408,7 @@ export function usePulse() {
     }
 
     if (editingRequest) {
-      // Update existing request in-place
+      // 更新已有请求（原地修改）
       setCollections((prev) =>
         prev.map((c) =>
           c.id === editingRequest.collectionId
@@ -386,6 +435,7 @@ export function usePulse() {
         ),
       );
     } else {
+      // 新建请求（弹出命名对话框）
       const name =
         window.prompt(
           "Request name:",
@@ -439,6 +489,7 @@ export function usePulse() {
     collections,
   ]);
 
+  /** 删除集合中的某个请求 */
   const deleteCollectionRequest = useCallback(
     (collectionId: string, requestId: string) => {
       setCollections((prev) =>
@@ -451,6 +502,7 @@ export function usePulse() {
             : c,
         ),
       );
+      // 如果删除的请求正在编辑，清除编辑状态
       if (
         editingRequest?.collectionId === collectionId &&
         editingRequest?.requestId === requestId
@@ -461,6 +513,7 @@ export function usePulse() {
     [editingRequest],
   );
 
+  /** 重命名集合中的请求（弹出对话框） */
   const renameCollectionRequest = useCallback(
     (collectionId: string, requestId: string) => {
       const col = collections.find((c) => c.id === collectionId);
@@ -485,6 +538,7 @@ export function usePulse() {
     [collections],
   );
 
+  /** 创建新集合（弹出命名对话框） */
   const addCollection = useCallback(() => {
     const name =
       window.prompt("Collection name:", `Collection ${collections.length + 1}`) ?? "";
@@ -499,6 +553,7 @@ export function usePulse() {
     setCollections((prev) => [...prev, newCol]);
   }, [collections.length]);
 
+  /** 更新集合的认证配置（类型 + Token） */
   const updateCollectionAuth = useCallback(
     (collectionId: string, authType: AuthType, bearerToken: string) => {
       setCollections((prev) =>
@@ -510,6 +565,13 @@ export function usePulse() {
     [],
   );
 
+  /**
+   * 移动请求（支持跨集合拖拽）
+   * @param sourceColId 来源集合
+   * @param requestId   请求 ID
+   * @param targetColId 目标集合
+   * @param targetIndex 目标位置索引
+   */
   const moveRequest = useCallback(
     (sourceColId: string, requestId: string, targetColId: string, targetIndex: number) => {
       setCollections((prev) => {
@@ -518,11 +580,11 @@ export function usePulse() {
         const req = sourceCol.requests.find((r) => r.id === requestId);
         if (!req) return prev;
 
-        // Remove from source
+        // 从源集合移除
         const withoutReq = sourceCol.requests.filter((r) => r.id !== requestId);
 
         if (sourceColId === targetColId) {
-          // Reorder within same collection
+          // 同一集合内重排
           const newRequests = [...withoutReq];
           newRequests.splice(targetIndex, 0, req);
           return prev.map((c) =>
@@ -530,7 +592,7 @@ export function usePulse() {
           );
         }
 
-        // Move to different collection
+        // 移动到不同集合
         return prev.map((c) => {
           if (c.id === sourceColId) {
             return { ...c, requests: withoutReq };
@@ -547,6 +609,7 @@ export function usePulse() {
     [],
   );
 
+  /** 移动集合（拖拽排序） */
   const moveCollection = useCallback((collectionId: string, targetIndex: number) => {
     setCollections((prev) => {
       const idx = prev.findIndex((c) => c.id === collectionId);
@@ -559,13 +622,16 @@ export function usePulse() {
     });
   }, []);
 
-  // Derive the collection name for the currently-editing request (used by AuthPanel)
+  // 获取当前编辑请求所属的集合名称（用于 AuthPanel 显示继承来源）
   const editingCollectionName = editingRequest
     ? collections.find((c) => c.id === editingRequest.collectionId)?.name ?? null
     : null;
 
-  /* ── Environment CRUD ── */
+  // ============================================================
+  // 环境 CRUD
+  // ============================================================
 
+  /** 创建新环境 */
   const addEnvironment = useCallback(() => {
     const newEnv: Environment = {
       id: crypto.randomUUID(),
@@ -575,21 +641,25 @@ export function usePulse() {
     setEnvironments((prev) => [...prev, newEnv]);
   }, [environments.length]);
 
+  /** 删除环境 */
   const deleteEnvironment = useCallback((id: string) => {
     setEnvironments((prev) => prev.filter((e) => e.id !== id));
     setActiveEnvironmentId((prev) => (prev === id ? null : prev));
   }, []);
 
+  /** 重命名环境 */
   const renameEnvironment = useCallback((id: string, name: string) => {
     setEnvironments((prev) =>
       prev.map((e) => (e.id === id ? { ...e, name } : e)),
     );
   }, []);
 
+  /** 设置当前激活环境（切换时自动替换 {{key}} 模板） */
   const setActiveEnvironment = useCallback((id: string | null) => {
     setActiveEnvironmentId(id);
   }, []);
 
+  /** 向指定环境添加新变量 */
   const addVariable = useCallback((envId: string) => {
     setEnvironments((prev) =>
       prev.map((e) =>
@@ -600,6 +670,7 @@ export function usePulse() {
     );
   }, []);
 
+  /** 更新指定环境的某个变量字段 */
   const updateVariable = useCallback(
     (envId: string, index: number, field: keyof EnvironmentVariable, value: string | boolean) => {
       setEnvironments((prev) =>
@@ -618,6 +689,7 @@ export function usePulse() {
     [],
   );
 
+  /** 从指定环境移除变量 */
   const removeVariable = useCallback((envId: string, index: number) => {
     setEnvironments((prev) =>
       prev.map((e) =>
@@ -627,6 +699,10 @@ export function usePulse() {
       ),
     );
   }, []);
+
+  // ============================================================
+  // 导出状态和方法（组件通过 props 接收）
+  // ============================================================
 
   return {
     authType,
@@ -664,7 +740,7 @@ export function usePulse() {
     loadFromHistory,
     loadCollectionRequest,
     clearResponse,
-    /* ── Collection CRUD exports ── */
+    /* ── 集合 CRUD ── */
     newRequest,
     saveCurrentRequest,
     deleteCollectionRequest,
@@ -675,7 +751,7 @@ export function usePulse() {
     moveCollection,
     editingCollectionName,
     editingRequest,
-    /* ── Environment exports ── */
+    /* ── 环境 CRUD ── */
     environments,
     activeEnvironmentId,
     addEnvironment,

@@ -3,6 +3,19 @@ import Sidebar from "./components/Sidebar";
 import RequestPanel from "./components/RequestPanel";
 import ResponsePanel from "./components/ResponsePanel";
 
+/**
+ * 应用根组件
+ *
+ * 布局结构（flex 纵向 + 横向）：
+ * ┌──────────┬──────────────────────────────┐
+ * │          │  RequestPanel（请求面板）       │
+ * │  Sidebar ├──────────────────────────────┤
+ * │  (240px) │  ResponsePanel（响应面板）      │
+ * │          │                              │
+ * └──────────┴──────────────────────────────┘
+ *
+ * 所有状态和回调均由 usePulse() hook 单点管理，通过 props 下发给子组件
+ */
 export default function App() {
   const state = usePulse();
 
@@ -15,7 +28,7 @@ export default function App() {
         onTabChange={state.setSidebarTab}
         onLoadHistory={state.loadFromHistory}
         onLoadRequest={state.loadCollectionRequest}
-        /* ── New request & collection management ── */
+        /* ── 新建请求 & 集合管理 ── */
         onNewRequest={state.newRequest}
         onDeleteRequest={state.deleteCollectionRequest}
         onRenameRequest={state.renameCollectionRequest}
@@ -23,7 +36,7 @@ export default function App() {
         onUpdateCollectionAuth={state.updateCollectionAuth}
         onMoveRequest={state.moveRequest}
         onMoveCollection={state.moveCollection}
-        /* ── Environment props ── */
+        /* ── 环境变量 ── */
         environments={state.environments}
         activeEnvironmentId={state.activeEnvironmentId}
         onAddEnvironment={state.addEnvironment}

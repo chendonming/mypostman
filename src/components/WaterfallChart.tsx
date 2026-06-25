@@ -4,13 +4,24 @@ interface WaterfallChartProps {
   timing: TimingInfo;
 }
 
+/** 瀑布图中的各阶段定义 */
 interface Phase {
-  label: string;
-  ms: number;
-  color: string;
-  tooltip: string;
+  label: string;      // 短标签（如 "DNS"）
+  ms: number;         // 耗时（毫秒）
+  color: string;      // Tailwind 颜色类
+  tooltip: string;    // 完整名称（鼠标悬浮时显示）
 }
 
+/**
+ * 请求耗时瀑布图组件
+ *
+ * 将 DNS/TCP/TLS/TTFB/Download 各阶段以水平条形式可视化，
+ * 条长与最大阶段耗时成比例。
+ *
+ * 注：DNS/TCP/TLS 数据为估算值——
+ * reqwest 不提供原生分阶段计时，后端按 TTFB 的 35% 估算连接时间，
+ * 再按 20%/30%/50% 分配。
+ */
 export default function WaterfallChart({ timing }: WaterfallChartProps) {
   const { total_ms, dns_lookup_ms, tcp_connect_ms, tls_handshake_ms, ttfb_ms, download_ms } = timing;
 
@@ -47,6 +58,7 @@ export default function WaterfallChart({ timing }: WaterfallChartProps) {
     },
   ];
 
+  // 如果所有阶段耗时均 < 0.1ms，不显示图表
   const hasSignificantTiming = phases.some((p) => p.ms > 0.1);
   const maxBarMs = Math.max(...phases.map((p) => p.ms), 1);
 
@@ -91,6 +103,7 @@ export default function WaterfallChart({ timing }: WaterfallChartProps) {
           );
         })}
       </div>
+      {/* 图例 */}
       <div className="flex items-center gap-3 mt-1.5 pt-1.5 border-t border-pulse-border/50">
         {phases.map((phase) => (
           <div key={phase.label} className="flex items-center gap-1">

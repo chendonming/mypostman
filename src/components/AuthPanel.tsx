@@ -5,15 +5,25 @@ interface AuthPanelProps {
   onAuthTypeChange: (t: AuthType) => void;
   bearerToken: string;
   onBearerTokenChange: (t: string) => void;
+  /** 当前请求所属集合名称（用于显示继承来源） */
   editingCollectionName: string | null;
 }
 
+/** 认证方式选项列表 */
 const AUTH_OPTIONS: { value: AuthType; label: string }[] = [
   { value: "none", label: "No Auth" },
   { value: "inherit", label: "Inherit from collection" },
   { value: "bearer", label: "Bearer Token" },
 ];
 
+/**
+ * 认证配置面板
+ *
+ * 支持三种模式：
+ * - No Auth：无认证
+ * - Inherit from collection：继承所属集合的认证配置
+ * - Bearer Token：手动输入 Bearer Token（会自动添加 "Bearer " 前缀）
+ */
 export default function AuthPanel({
   authType,
   onAuthTypeChange,
@@ -23,7 +33,7 @@ export default function AuthPanel({
 }: AuthPanelProps) {
   return (
     <div className="p-3 space-y-3">
-      {/* Auth Type Selector */}
+      {/* 认证类型选择器 */}
       <div className="flex items-center gap-3">
         <label className="text-xs font-medium text-pulse-text-secondary w-16">
           Type
@@ -41,7 +51,7 @@ export default function AuthPanel({
         </select>
       </div>
 
-      {/* Inherit info */}
+      {/* 继承说明：显示从哪个集合继承 */}
       {authType === "inherit" && (
         <div className="pl-[5.5rem]">
           {editingCollectionName ? (
@@ -59,7 +69,7 @@ export default function AuthPanel({
         </div>
       )}
 
-      {/* Bearer Token Input */}
+      {/* Bearer Token 输入 */}
       {authType === "bearer" && (
         <>
           <div className="flex items-center gap-3">

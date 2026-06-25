@@ -2,7 +2,18 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ============================================================
+ * Pulse 应用的全局样式
+ * 基于 Tailwind CSS + 自定义暗色设计系统
+ *
+ * 自定义 CSS class 分三层：
+ * 1. base — 全局滚动条、输入框焦点
+ * 2. components — 可复用组件类（panel/btn/input/badge）
+ * 3. utilities — 工具类
+ * ============================================================ */
+
 @layer base {
+  /* 自定义薄型滚动条（暗色主题） */
   * {
     scrollbar-width: thin;
     scrollbar-color: #2E3348 transparent;
@@ -26,6 +37,7 @@
     background-color: #3E4360;
   }
 
+  /* 全局移除外轮廓，使用自定义 focus ring */
   input,
   textarea,
   select {
@@ -40,44 +52,53 @@
 }
 
 @layer components {
+  /* 卡片面板容器 */
   .panel {
     @apply bg-pulse-surface border border-pulse-border rounded-lg;
   }
 
+  /* 面板头部 */
   .panel-header {
     @apply flex items-center gap-2 px-4 py-2 text-xs font-medium text-pulse-text-secondary uppercase tracking-wider border-b border-pulse-border;
   }
 
+  /* 主要按钮（琥珀色强调） */
   .btn-primary {
     @apply inline-flex items-center gap-1.5 px-4 py-1.5 text-sm font-medium rounded-lg
            bg-pulse-accent text-pulse-deepest hover:bg-pulse-accent-soft
            transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed;
   }
 
+  /* 幽灵按钮（透明背景，悬停时显示） */
   .btn-ghost {
     @apply inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg
            text-pulse-text-secondary hover:text-pulse-text-primary hover:bg-pulse-hover
            transition-colors duration-150;
   }
 
+  /* 输入框 */
   .input-field {
     @apply w-full bg-pulse-deepest border border-pulse-border rounded-lg
            px-3 py-1.5 text-sm text-pulse-text-primary placeholder-pulse-text-muted
            transition-colors duration-150;
   }
 
+  /* 激活的 Tab 下划线样式 */
   .tab-active {
     @apply text-pulse-accent border-b-2 border-pulse-accent;
   }
 
+  /* 非激活 Tab 样式 */
   .tab-inactive {
     @apply text-pulse-text-muted hover:text-pulse-text-secondary border-b-2 border-transparent hover:border-pulse-border;
   }
 
+  /* 小型标签 */
   .badge {
     @apply inline-flex items-center px-2 py-0.5 text-xs font-medium rounded-md;
   }
 
+  /* HTTP 方法专用标签（含等宽字体） */
   .method-badge {
     @apply badge font-mono font-semibold text-xs;
   }

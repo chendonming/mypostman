@@ -18,6 +18,15 @@ interface EnvironmentPanelProps {
   onRemoveVariable: (envId: string, index: number) => void;
 }
 
+/**
+ * 环境变量管理面板（内嵌在侧边栏的 Envs Tab 中）
+ *
+ * 功能：
+ * - 列出所有环境，支持点击切换激活状态
+ * - 选中环境后显示/编辑其变量（Key/Value 键值对）
+ * - 变量支持启用/禁用，禁用的变量在 {{key}} 替换时会被跳过
+ * - 环境可重命名、删除
+ */
 export default function EnvironmentPanel({
   environments,
   activeEnvironmentId,
@@ -33,11 +42,13 @@ export default function EnvironmentPanel({
   const [editingName, setEditingName] = useState<string | null>(null);
   const [nameBuffer, setNameBuffer] = useState("");
 
+  // 开始重命名环境（填充初始值到输入框）
   const handleStartRename = (env: Environment) => {
     setEditingName(env.id);
     setNameBuffer(env.name);
   };
 
+  // 完成重命名（校验并保存）
   const handleFinishRename = () => {
     if (editingName && nameBuffer.trim()) {
       onRenameEnvironment(editingName, nameBuffer.trim());
@@ -46,6 +57,7 @@ export default function EnvironmentPanel({
     setNameBuffer("");
   };
 
+  // 重命名输入框的键盘事件（Enter 确认，Escape 取消）
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter") handleFinishRename();
     if (e.key === "Escape") setEditingName(null);
@@ -53,7 +65,7 @@ export default function EnvironmentPanel({
 
   return (
     <div className="flex flex-col h-full">
-      {/* Header */}
+      {/* 头部：标题 + 添加按钮 */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-pulse-border">
         <span className="text-[11px] font-semibold text-pulse-text-muted uppercase tracking-wider">
           Environments
@@ -70,6 +82,7 @@ export default function EnvironmentPanel({
       </div>
 
       {environments.length === 0 ? (
+        /* 空状态提示 */
         <div className="flex-1 flex flex-col items-center justify-center px-4 py-8 text-center">
           <p className="text-xs text-pulse-text-muted">No environments yet</p>
           <button
@@ -81,11 +94,10 @@ export default function EnvironmentPanel({
         </div>
       ) : (
         <div className="flex-1 overflow-y-auto">
-          {/* Environment list */}
           <div className="border-b border-pulse-border">
             {environments.map((env) => (
               <div key={env.id}>
-                {/* Environment row */}
+                {/* 环境行（单选 + 名称 + 操作按钮） */}
                 <div
                   className={`flex items-center gap-2 px-3 py-1.5 text-xs cursor-pointer transition-colors group ${
                     selectedEnvId === env.id
@@ -93,7 +105,7 @@ export default function EnvironmentPanel({
                       : "hover:bg-pulse-hover"
                   }`}
                 >
-                  {/* Active radio */}
+                  {/* 激活/停用单选按钮 */}
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
@@ -117,7 +129,7 @@ export default function EnvironmentPanel({
                     )}
                   </button>
 
-                  {/* Env name */}
+                  {/* 环境名称（单击展开/折叠变量编辑器） */}
                   <button
                     onClick={() => setSelectedEnvId(env.id)}
                     className="flex-1 text-left"
@@ -137,7 +149,7 @@ export default function EnvironmentPanel({
                     )}
                   </button>
 
-                  {/* Rename button */}
+                  {/* 重命名按钮 */}
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
@@ -157,7 +169,7 @@ export default function EnvironmentPanel({
                     </svg>
                   </button>
 
-                  {/* Delete button */}
+                  {/* 删除按钮 */}
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
@@ -179,7 +191,7 @@ export default function EnvironmentPanel({
                   </button>
                 </div>
 
-                {/* Variable editor for selected environment */}
+                {/* 变量编辑器（选中环境时展开） */}
                 {selectedEnvId === env.id && (
                   <div className="px-3 pb-2">
                     <div className="flex items-center justify-between mt-1 mb-1">
@@ -205,7 +217,7 @@ export default function EnvironmentPanel({
                             key={i}
                             className="flex items-center gap-1"
                           >
-                            {/* Enabled checkbox */}
+                            {/* 启用/禁用复选框 */}
                             <button
                               onClick={() =>
                                 onUpdateVariable(env.id, i, "enabled", !v.enabled)
@@ -229,7 +241,7 @@ export default function EnvironmentPanel({
                               )}
                             </button>
 
-                            {/* Key input */}
+                            {/* 变量名输入（KEY） */}
                             <input
                               value={v.key}
                               onChange={(e) =>
@@ -241,7 +253,7 @@ export default function EnvironmentPanel({
                               }`}
                             />
 
-                            {/* Value input */}
+                            {/* 变量值输入 */}
                             <input
                               value={v.value}
                               onChange={(e) =>
@@ -253,7 +265,7 @@ export default function EnvironmentPanel({
                               }`}
                             />
 
-                            {/* Remove button */}
+                            {/* 删除变量按钮 */}
                             <button
                               onClick={() => onRemoveVariable(env.id, i)}
                               className="w-4 h-4 flex items-center justify-center text-pulse-text-muted hover:text-pulse-rose shrink-0 transition-colors"

@@ -1,58 +1,74 @@
+// ============================================================
+// Pulse 应用数据类型定义
+// 与 src-tauri/src/lib.rs 中的 Rust 结构体一一对应
+// 修改时必须同步更新两边
+// ============================================================
+
+/** HTTP 键值对（请求头/查询参数共用），支持启用/禁用 */
 export interface HeaderInput {
   key: string;
   value: string;
   enabled: boolean;
 }
 
+/** 请求各阶段耗时（毫秒），由 Rust 后端估算 */
 export interface TimingInfo {
-  dns_lookup_ms: number;
-  tcp_connect_ms: number;
-  tls_handshake_ms: number;
-  ttfb_ms: number;
-  download_ms: number;
-  total_ms: number;
+  dns_lookup_ms: number;    // DNS 解析耗时
+  tcp_connect_ms: number;   // TCP 连接耗时
+  tls_handshake_ms: number; // TLS 握手耗时
+  ttfb_ms: number;          // 首字节到达耗时（Time To First Byte）
+  download_ms: number;      // 内容下载耗时
+  total_ms: number;         // 总耗时
 }
 
+/** HTTP 响应数据 */
 export interface ResponseData {
-  status: number;
-  status_text: string;
-  headers: Record<string, string>;
-  body: string;
-  content_type: string | null;
-  size: number;
-  size_label: string;
-  timing: TimingInfo;
+  status: number;                        // HTTP 状态码
+  status_text: string;                   // 状态文本（如 "OK"）
+  headers: Record<string, string>;       // 响应头键值对
+  body: string;                          // 响应体文本
+  content_type: string | null;           // Content-Type
+  size: number;                          // 响应体字节数
+  size_label: string;                    // 人类可读大小（如 "12.3 KB"）
+  timing: TimingInfo;                    // 各阶段耗时
 }
 
+/** 请求集合：一组相关请求的容器 */
 export interface Collection {
   id: string;
   name: string;
   requests: RequestItem[];
+  /** 集合级默认认证方式（子请求可继承） */
   authType: AuthType;
   bearerToken: string;
 }
 
+/** 集合中的单个请求定义 */
 export interface RequestItem {
   id: string;
-  name: string;
-  method: string;
-  url: string;
+  name: string;         // 显示名称
+  method: string;       // HTTP 方法（GET/POST 等）
+  url: string;           // 请求 URL
   headers: HeaderInput[];
   body: string;
   contentType: string;
+  /** 请求级认证方式（可继承自集合） */
   authType: AuthType;
   bearerToken: string;
+  /** URL 查询参数列表 */
   params: HeaderInput[];
 }
 
+/** 历史记录摘要（侧边栏列表用，不含完整请求详情） */
 export interface HistoryItem {
   id: string;
   method: string;
   url: string;
-  status: number | null;
-  timestamp: number;
+  status: number | null;  // 响应状态码（尚未发送时为 null）
+  timestamp: number;      // Unix 毫秒时间戳
 }
 
+/** 支持的 HTTP 方法枚举 */
 export type HttpMethod =
   | "GET"
   | "POST"
@@ -62,49 +78,58 @@ export type HttpMethod =
   | "HEAD"
   | "OPTIONS";
 
+/** 认证方式：无 / 继承集合 / Bearer Token */
 export type AuthType = "none" | "bearer" | "inherit";
 
+/** 认证配置（类型 + Token） */
 export interface AuthConfig {
   type: AuthType;
   bearerToken: string;
 }
 
+/** 日志条目——记录一次完整的 HTTP 请求/响应生命周期 */
 export interface LogEntry {
-  id: number;
-  timestamp: number;
+  id: number;                              // 自增 ID
+  timestamp: number;                        // Unix 毫秒时间戳
   method: string;
   url: string;
   status: number;
   status_text: string;
-  size_label: string;
-  total_ms: number;
-  content_type: string | null;
-  error: string | null;
-  request_headers: HeaderInput[];
-  request_body: string | null;
-  response_headers: Record<string, string>;
+  size_label: string;                       // 响应大小
+  total_ms: number;                         // 总耗时
+  content_type: string | null;              // 响应 Content-Type
+  error: string | null;                     // 错误信息
+  request_headers: HeaderInput[];           // 发出的请求头
+  request_body: string | null;              // 发出的请求体
+  response_headers: Record<string, string>; // 收到的响应头
 }
 
+/** 请求面板的 Tab 类型 */
 export type RequestTab = "params" | "auth" | "headers" | "body";
+/** 侧边栏的 Tab 类型 */
 export type SidebarTab = "collections" | "history" | "environments";
 
+/** 环境变量键值对 */
 export interface EnvironmentVariable {
   key: string;
   value: string;
   enabled: boolean;
 }
 
+/** 环境：一组可复用变量的集合，用于 {{key}} 模板替换 */
 export interface Environment {
   id: string;
   name: string;
   variables: EnvironmentVariable[];
 }
 
+/** 环境数据：全部环境列表 + 当前激活的环境 ID */
 export interface EnvironmentData {
   environments: Environment[];
   active_id: string | null;
 }
 
+/** 集合数据：全部集合列表 */
 export interface CollectionData {
   collections: Collection[];
 }

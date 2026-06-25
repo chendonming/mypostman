@@ -9,6 +9,7 @@ interface ResponsePanelProps {
   onResponseTabChange: (t: "body" | "headers") => void;
 }
 
+/** 根据 HTTP 状态码返回对应的 Badge 颜色 */
 function getStatusColor(status: number): string {
   if (status >= 200 && status < 300) return "bg-pulse-emerald text-pulse-deepest";
   if (status >= 300 && status < 400) return "bg-pulse-blue text-pulse-deepest";
@@ -16,6 +17,7 @@ function getStatusColor(status: number): string {
   return "bg-pulse-rose text-white";
 }
 
+/** 根据 HTTP 状态码返回状态条颜色 */
 function getStatusBarColor(status: number): string {
   if (status >= 200 && status < 300) return "bg-pulse-emerald";
   if (status >= 300 && status < 400) return "bg-pulse-blue";
@@ -23,9 +25,9 @@ function getStatusBarColor(status: number): string {
   return "bg-pulse-rose";
 }
 
+/** 格式化响应体：JSON 自动美化排版 */
 function formatBody(body: string, contentType?: string | null): string {
   if (!body) return "";
-  // Try to pretty-print JSON
   if (contentType?.includes("json")) {
     try {
       return JSON.stringify(JSON.parse(body), null, 2);
@@ -36,6 +38,15 @@ function formatBody(body: string, contentType?: string | null): string {
   return body;
 }
 
+/**
+ * 响应面板
+ *
+ * 四种显示状态：
+ * 1. 加载中（Loading）→ 旋转动画 + "Sending request..."
+ * 2. 出错（Error）→ 警告图标 + 错误信息
+ * 3. 空（Empty）→ "Ready to send a request" 引导提示
+ * 4. 有响应 → 状态栏 + 瀑布图 + Body/Headers 双 Tab
+ */
 export default function ResponsePanel({
   response,
   isLoading,
@@ -136,7 +147,7 @@ export default function ResponsePanel({
 
   return (
     <div className="h-full flex flex-col bg-pulse-deepest animate-fade-in">
-      {/* Status Bar */}
+      {/* 状态栏：状态码 + 耗时 + 大小 */}
       <div className="flex items-center gap-3 px-4 py-2 border-b border-pulse-border bg-pulse-surface shrink-0">
         <div className="flex items-center gap-2">
           <span
@@ -157,10 +168,10 @@ export default function ResponsePanel({
       </div>
 
       <div className="flex-1 flex flex-col min-h-0">
-        {/* Timing Waterfall */}
+        {/* 耗时瀑布图 */}
         <WaterfallChart timing={response.timing} />
 
-        {/* Tabs */}
+        {/* Tab：Body / Headers */}
         <div className="flex items-center gap-1 px-3 border-b border-pulse-border shrink-0">
           <button
             onClick={() => onResponseTabChange("body")}
@@ -187,7 +198,7 @@ export default function ResponsePanel({
           </button>
         </div>
 
-        {/* Tab Content */}
+        {/* Tab 内容 */}
         <div className="flex-1 overflow-auto">
           {responseTab === "body" ? (
             <pre className="p-4 text-xs font-mono text-pulse-text-primary whitespace-pre-wrap break-all">

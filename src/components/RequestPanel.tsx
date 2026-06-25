@@ -2,6 +2,10 @@ import { useRef, useEffect } from "react";
 import type { HeaderInput, RequestTab, HttpMethod, AuthType } from "../types";
 import AuthPanel from "./AuthPanel";
 
+/**
+ * 请求面板属性
+ * 所有状态由 usePulse() hook 通过 props 传入（无 Context/Redux）
+ */
 interface RequestPanelProps {
   method: HttpMethod;
   onMethodChange: (m: HttpMethod) => void;
@@ -32,6 +36,7 @@ interface RequestPanelProps {
   onRemoveParam: (i: number) => void;
 }
 
+/** 支持的 HTTP 方法列表 */
 const METHODS: HttpMethod[] = [
   "GET",
   "POST",
@@ -42,6 +47,7 @@ const METHODS: HttpMethod[] = [
   "OPTIONS",
 ];
 
+/** 方法选择器每项的颜色映射 */
 const methodSelectColors: Record<string, string> = {
   GET: "text-method-get",
   POST: "text-method-post",
@@ -52,6 +58,7 @@ const methodSelectColors: Record<string, string> = {
   OPTIONS: "text-method-get",
 };
 
+/** 支持的 Content-Type 下拉选项 */
 const CONTENT_TYPES = [
   "application/json",
   "application/x-www-form-urlencoded",
@@ -60,6 +67,15 @@ const CONTENT_TYPES = [
   "text/html",
 ];
 
+/**
+ * 请求面板（顶部区域）
+ *
+ * 包含：
+ * - URL 栏（方法选择器 + URL 输入框 + 保存按钮 + 发送按钮）
+ * - 四个配置 Tab：Auth / Params / Headers / Body
+ *
+ * 支持快捷键 Ctrl+Enter（或 Cmd+Enter）快速发送请求
+ */
 export default function RequestPanel({
   method,
   onMethodChange,
@@ -91,6 +107,7 @@ export default function RequestPanel({
 }: RequestPanelProps) {
   const urlRef = useRef<HTMLInputElement>(null);
 
+  // 注册全局键盘快捷键：Ctrl+Enter 发送请求
   useEffect(() => {
     const handle = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
@@ -103,9 +120,9 @@ export default function RequestPanel({
 
   return (
     <div className="shrink-0 border-b border-pulse-border bg-pulse-surface">
-      {/* URL Bar */}
+      {/* URL 栏：方法选择器 + URL 输入 + 保存 + 发送 */}
       <div className="flex items-center gap-2 px-3 py-2.5">
-        {/* Method Selector */}
+        {/* HTTP 方法下拉选择器 */}
         <div className="relative">
           <select
             value={method}
@@ -133,7 +150,7 @@ export default function RequestPanel({
           </svg>
         </div>
 
-        {/* URL Input */}
+        {/* URL 输入框（支持 Enter 快捷发送） */}
         <div className="flex-1 relative">
           <input
             ref={urlRef}
@@ -146,6 +163,7 @@ export default function RequestPanel({
               if (e.key === "Enter" && !isLoading) onSend();
             }}
           />
+          {/* URL 清空按钮 */}
           {url && (
             <button
               onClick={() => onUrlChange("")}
@@ -168,7 +186,7 @@ export default function RequestPanel({
           )}
         </div>
 
-        {/* Save Button */}
+        {/* 保存到集合按钮 */}
         <button
           onClick={onSave}
           disabled={isLoading}
@@ -181,7 +199,7 @@ export default function RequestPanel({
           {editingRequest ? "Update" : "Save"}
         </button>
 
-        {/* Send Button */}
+        {/* 发送按钮（加载中显示旋转动画） */}
         <button
           onClick={onSend}
           disabled={isLoading || !url.trim()}
@@ -231,7 +249,7 @@ export default function RequestPanel({
         </button>
       </div>
 
-      {/* Tabs */}
+      {/* 配置 Tab：Auth / Params / Headers / Body */}
       <div className="flex items-center gap-1 px-3">
         <button
           onClick={() => onRequestTabChange("auth")}
@@ -300,8 +318,9 @@ export default function RequestPanel({
         </button>
       </div>
 
-      {/* Tab Content */}
+      {/* Tab 内容区域 */}
       <div className="max-h-52 overflow-y-auto border-t border-pulse-border">
+        {/* Auth Tab */}
         {requestTab === "auth" && (
           <AuthPanel
             authType={authType}
@@ -312,6 +331,7 @@ export default function RequestPanel({
           />
         )}
 
+        {/* Params Tab：Key-Value 编辑器 */}
         {requestTab === "params" && (
           <div className="p-2 space-y-1">
             <div className="grid grid-cols-[1fr_1fr_24px] gap-1.5 text-[11px] text-pulse-text-muted font-medium px-2 pb-1">
@@ -393,6 +413,7 @@ export default function RequestPanel({
           </div>
         )}
 
+        {/* Headers Tab：Key-Value 编辑器 */}
         {requestTab === "headers" && (
           <div className="p-2 space-y-1">
             <div className="grid grid-cols-[1fr_1fr_24px] gap-1.5 text-[11px] text-pulse-text-muted font-medium px-2 pb-1">
@@ -474,6 +495,7 @@ export default function RequestPanel({
           </div>
         )}
 
+        {/* Body Tab：Content-Type 选择 + 请求体文本域 */}
         {requestTab === "body" && (
           <div className="p-2 space-y-2">
             <div className="flex items-center gap-2">

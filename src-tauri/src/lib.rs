@@ -7,29 +7,46 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use tauri::{AppHandle, Emitter, Manager};
 
+// ============================================================
+// 常量定义
+// ============================================================
+
+/** 日志中请求/响应体的最大字符数（超过则截断） */
 const MAX_LOG_BODY_LEN: usize = 10_000;
+/** Rust 侧日志存储的最大条目数（FIFO 淘汰） */
 const MAX_LOG_ENTRIES: usize = 2000;
 
+/** 自增日志 ID 原子计数器，确保每个日志条目有唯一 ID */
 static NEXT_LOG_ID: AtomicU64 = AtomicU64::new(1);
 
+/** 获取下一个自增日志 ID（原子递增，线程安全） */
 fn next_log_id() -> u64 {
     NEXT_LOG_ID.fetch_add(1, Ordering::Relaxed)
 }
 
+// ============================================================
+// 数据结构 —— 与前端 TypeScript 类型一一对应
+// ============================================================
+
+/** HTTP 请求头/参数键值对，支持启用/禁用 */
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HeaderInput {
     pub key: String,
     pub value: String,
+    /** 是否启用（禁用的条目不会出现在实际请求中） */
     pub enabled: bool,
 }
 
+/** 环境变量：用于 {{key}} 模板替换 */
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EnvironmentVariable {
     pub key: String,
     pub value: String,
+    /** 是否启用（禁用的变量不会被替换） */
     pub enabled: bool,
 }
 
+/** 环境：一组可复用的变量集合 */
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Environment {
     pub id: String,
@@ -37,65 +54,80 @@ pub struct Environment {
     pub variables: Vec<EnvironmentVariable>,
 }
 
+/** 环境数据：全部环境列表 + 当前激活的环境 ID */
 #[derive(Debug, Serialize, Deserialize)]
 pub struct EnvironmentData {
     pub environments: Vec<Environment>,
     pub active_id: Option<String>,
 }
 
+/** 前端传入的请求参数（由 invoke("send_request") 携带） */
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RequestInput {
     pub method: String,
     pub url: String,
     pub headers: Vec<HeaderInput>,
+    /** 请求体（None 表示无请求体） */
     pub body: Option<String>,
+    /** Content-Type 字段值 */
     pub content_type: Option<String>,
 }
 
+/**
+ * 各阶段耗时（单位：毫秒）
+ * 注：DNS/TCP/TLS 为估算值，reqwest 不提供原生分阶段计时
+ */
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TimingInfo {
-    pub dns_lookup_ms: f64,
-    pub tcp_connect_ms: f64,
-    pub tls_handshake_ms: f64,
-    pub ttfb_ms: f64,
-    pub download_ms: f64,
-    pub total_ms: f64,
+    pub dns_lookup_ms: f64,   // DNS 解析耗时
+    pub tcp_connect_ms: f64,  // TCP 连接耗时
+    pub tls_handshake_ms: f64,// TLS 握手耗时
+    pub ttfb_ms: f64,          // 首字节到达耗时（Time To First Byte）
+    pub download_ms: f64,      // 内容下载耗时
+    pub total_ms: f64,         // 总耗时
 }
 
+/** Tauri 命令返回到前端的响应数据 */
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ResponseData {
-    pub status: u16,
-    pub status_text: String,
-    pub headers: HashMap<String, String>,
-    pub body: String,
-    pub content_type: Option<String>,
-    pub size: usize,
-    pub size_label: String,
-    pub timing: TimingInfo,
+    pub status: u16,                        // HTTP 状态码
+    pub status_text: String,                // 状态文本（如 "OK"）
+    pub headers: HashMap<String, String>,    // 响应头键值对
+    pub body: String,                        // 响应体文本
+    pub content_type: Option<String>,        // 响应 Content-Type
+    pub size: usize,                         // 响应体字节数
+    pub size_label: String,                  // 人类可读的大小字符串（如 "12.3 KB"）
+    pub timing: TimingInfo,                  // 各阶段耗时
 }
 
+/** 日志条目：记录一次完整的 HTTP 请求/响应生命周期 */
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LogEntry {
-    pub id: u64,
-    pub timestamp: u64,
-    pub method: String,
-    pub url: String,
-    pub status: u16,
-    pub status_text: String,
-    pub size_label: String,
-    pub total_ms: f64,
-    pub content_type: Option<String>,
-    pub error: Option<String>,
-    pub request_headers: Vec<HeaderInput>,
-    pub request_body: Option<String>,
-    pub response_headers: HashMap<String, String>,
+    pub id: u64,                               // 自增唯一 ID
+    pub timestamp: u64,                         // Unix 毫秒时间戳
+    pub method: String,                         // HTTP 方法
+    pub url: String,                            // 最终请求 URL（变量已替换）
+    pub status: u16,                            // HTTP 状态码（0 表示出错）
+    pub status_text: String,                    // 状态文本
+    pub size_label: String,                     // 响应大小
+    pub total_ms: f64,                          // 总耗时（毫秒）
+    pub content_type: Option<String>,           // 响应 Content-Type
+    pub error: Option<String>,                  // 错误信息（成功时为 None）
+    pub request_headers: Vec<HeaderInput>,       // 发送的请求头
+    pub request_body: Option<String>,           // 发送的请求体（已截断）
+    pub response_headers: HashMap<String, String>, // 收到的响应头
 }
 
+/**
+ * 日志存储（由 Rust 托管，Mutex 保护线程安全）
+ * 前端通过 Tauri 命令 get_logs/clear_logs 读写
+ */
 pub struct LogStore {
     entries: Vec<LogEntry>,
 }
 
 impl LogStore {
+    /** 追加日志条目，超过 MAX_LOG_ENTRIES 时移除最旧的（FIFO 淘汰） */
     fn push(&mut self, entry: LogEntry) {
         self.entries.push(entry);
         if self.entries.len() > MAX_LOG_ENTRIES {
@@ -104,6 +136,10 @@ impl LogStore {
     }
 }
 
+/**
+ * 截断过长的请求/响应体
+ * 使用 floor_char_boundary 确保在多字节字符边界安全截断，避免 Panic
+ */
 fn truncate_body(s: &str) -> String {
     if s.len() > MAX_LOG_BODY_LEN {
         let end = s.floor_char_boundary(MAX_LOG_BODY_LEN);
@@ -115,6 +151,7 @@ fn truncate_body(s: &str) -> String {
     }
 }
 
+/** 获取当前 Unix 毫秒时间戳 */
 fn now_millis() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -122,6 +159,10 @@ fn now_millis() -> u64 {
         .as_millis() as u64
 }
 
+/**
+ * 环境变量替换：将字符串中的 {{key}} 替换为对应的变量值
+ * 例如：{{base_url}}/api/users → https://example.com/api/users
+ */
 fn substitute_variables(input: &str, variables: &[EnvironmentVariable]) -> String {
     let mut result = input.to_string();
     for var in variables {
@@ -133,12 +174,25 @@ fn substitute_variables(input: &str, variables: &[EnvironmentVariable]) -> Strin
     result
 }
 
+// ============================================================
+// Tauri 命令 —— 前端通过 invoke() 调用
+// ============================================================
+
+/**
+ * send_request：核心 HTTP 命令
+ *
+ * 1. 对 URL/请求头/请求体 执行 {{variable}} 环境变量替换
+ * 2. 通过 reqwest 发送 HTTP 请求（60 秒超时）
+ * 3. 测量各阶段耗时（TTFB、下载等；DNS/TCP/TLS 按百分比估算）
+ * 4. 构建日志条目，存入 Rust 侧 LogStore
+ * 5. 通过 Tauri Events 发送 http-log 事件，供日志窗口实时更新
+ */
 #[tauri::command]
 async fn send_request(app: AppHandle, input: RequestInput, variables: Vec<EnvironmentVariable>) -> Result<ResponseData, String> {
     let full_start = Instant::now();
     let method = input.method.to_uppercase();
 
-    // Substitute {{variables}} in all request fields
+    // 步骤 1: 变量替换 —— 将 {{key}} 模式替换为实际值
     let url = substitute_variables(&input.url, &variables);
     let substituted_headers: Vec<HeaderInput> = input
         .headers
@@ -158,6 +212,7 @@ async fn send_request(app: AppHandle, input: RequestInput, variables: Vec<Enviro
         .as_ref()
         .map(|ct| substitute_variables(ct, &variables));
 
+    // 步骤 2: 构建 HTTP 客户端（60 秒超时）
     let client = Client::builder()
         .timeout(Duration::from_secs(60))
         .build()
@@ -169,6 +224,7 @@ async fn send_request(app: AppHandle, input: RequestInput, variables: Vec<Enviro
 
     let mut req = client.request(req_method, &url);
 
+    // 步骤 3: 装配请求头
     let mut headers = HeaderMap::new();
     for h in &substituted_headers {
         if h.enabled && !h.key.trim().is_empty() {
@@ -181,6 +237,7 @@ async fn send_request(app: AppHandle, input: RequestInput, variables: Vec<Enviro
         }
     }
 
+    // 如果 Content-Type 尚未设置且参数中提供了，则补充
     if let Some(ct) = &content_type {
         if !headers.contains_key("content-type") && !ct.is_empty() {
             if let Ok(v) = HeaderValue::from_str(ct) {
@@ -191,16 +248,18 @@ async fn send_request(app: AppHandle, input: RequestInput, variables: Vec<Enviro
 
     req = req.headers(headers);
 
+    // 步骤 4: 装配请求体
     if let Some(body_str) = &body {
         if !body_str.is_empty() {
             req = req.body(body_str.clone());
         }
     }
 
-    // Capture request info for logging
+    // 记录原始请求信息（用于日志）
     let request_headers: Vec<HeaderInput> = substituted_headers.clone();
     let request_body: Option<String> = body.as_ref().map(|b| truncate_body(b));
 
+    // 步骤 5: 发送请求并测量耗时
     let before_send = Instant::now();
     let resp_result = req.send().await;
 
@@ -208,6 +267,7 @@ async fn send_request(app: AppHandle, input: RequestInput, variables: Vec<Enviro
 
     let mut log_response_headers: HashMap<String, String> = HashMap::new();
 
+    // 步骤 6: 处理响应
     let result: Result<ResponseData, String> = match resp_result {
         Ok(resp) => {
             let status = resp.status().as_u16();
@@ -217,6 +277,7 @@ async fn send_request(app: AppHandle, input: RequestInput, variables: Vec<Enviro
                 .unwrap_or("Unknown")
                 .to_string();
 
+            // 提取响应头
             let resp_headers: HashMap<String, String> = resp
                 .headers()
                 .iter()
@@ -226,6 +287,7 @@ async fn send_request(app: AppHandle, input: RequestInput, variables: Vec<Enviro
 
             let content_type = resp_headers.get("content-type").cloned();
 
+            // 读取响应体
             let body = resp
                 .text()
                 .await
@@ -233,6 +295,7 @@ async fn send_request(app: AppHandle, input: RequestInput, variables: Vec<Enviro
 
             let total_elapsed = full_start.elapsed();
 
+            // 计算人类可读的大小
             let size = body.len();
             let size_label = if size < 1024 {
                 format!("{} B", size)
@@ -246,6 +309,8 @@ async fn send_request(app: AppHandle, input: RequestInput, variables: Vec<Enviro
             let ttfb_ms = ttfb_elapsed.as_secs_f64() * 1000.0;
             let download_ms = (total_ms - ttfb_ms).max(0.1);
 
+            // timing 估算：将 TTFB 的 35% 估算为连接时间，再按 20%/30%/50% 分给 DNS/TCP/TLS
+            // 注：reqwest 不提供原生分阶段计时，此处为近似值
             let (dns_ms, tcp_ms, tls_ms) = if ttfb_ms > 10.0 {
                 let connection = ttfb_ms * 0.35;
                 (connection * 0.2, connection * 0.3, connection * 0.5)
@@ -274,6 +339,7 @@ async fn send_request(app: AppHandle, input: RequestInput, variables: Vec<Enviro
             })
         }
         Err(e) => {
+            // 根据错误类型给出中文友好的错误消息
             let msg = if e.is_timeout() {
                 "Request timed out after 60 seconds".to_string()
             } else if e.is_connect() {
@@ -287,7 +353,7 @@ async fn send_request(app: AppHandle, input: RequestInput, variables: Vec<Enviro
         }
     };
 
-    // Build log entry from actual request/response data (Rust side — no UI dependency)
+    // 步骤 7: 构建日志条目（成功/失败统一记录）
     let total_ms = full_start.elapsed().as_secs_f64() * 1000.0;
     let now = now_millis();
     let log_id = next_log_id();
@@ -325,28 +391,27 @@ async fn send_request(app: AppHandle, input: RequestInput, variables: Vec<Enviro
         },
     };
 
-    // Store in Rust-managed state (source of truth)
+    // 步骤 8: 持久化日志到 Rust 托管状态
     if let Some(store) = app.try_state::<Mutex<LogStore>>() {
         if let Ok(mut store) = store.lock() {
             store.push(log_entry.clone());
         }
     }
 
-    // Emit event for real-time log viewer updates
+    // 步骤 9: 通过 Tauri Events 实时推送日志条目
     let _ = app.emit("http-log", &log_entry);
 
     result
 }
 
-/// Retrieve all logs from the Rust-managed store.
-/// LogViewer calls this on startup to catch up on any missed events.
+/** 获取全部日志条目（LogViewer 启动时调用，用于弥补事件丢失） */
 #[tauri::command]
 fn get_logs(store: tauri::State<'_, Mutex<LogStore>>) -> Result<Vec<LogEntry>, String> {
     let store = store.lock().map_err(|e| format!("Lock error: {}", e))?;
     Ok(store.entries.clone())
 }
 
-/// Clear all logs from the Rust-managed store.
+/** 清空所有日志（由前端 Clear 按钮触发） */
 #[tauri::command]
 fn clear_logs(store: tauri::State<'_, Mutex<LogStore>>) -> Result<(), String> {
     let mut store = store.lock().map_err(|e| format!("Lock error: {}", e))?;
@@ -354,7 +419,7 @@ fn clear_logs(store: tauri::State<'_, Mutex<LogStore>>) -> Result<(), String> {
     Ok(())
 }
 
-/// Load environments from the app data directory.
+/** 从操作系统应用数据目录加载 environments.json */
 #[tauri::command]
 fn load_environments(app: AppHandle) -> Result<EnvironmentData, String> {
     let data_dir = app
@@ -375,7 +440,7 @@ fn load_environments(app: AppHandle) -> Result<EnvironmentData, String> {
     serde_json::from_str(&content).map_err(|e| format!("Failed to parse: {}", e))
 }
 
-/// Save environments to the app data directory.
+/** 将环境数据持久化到 environments.json */
 #[tauri::command]
 fn save_environments(app: AppHandle, data: EnvironmentData) -> Result<(), String> {
     let data_dir = app
@@ -391,7 +456,7 @@ fn save_environments(app: AppHandle, data: EnvironmentData) -> Result<(), String
     Ok(())
 }
 
-/// Load collections from the app data directory.
+/** 从操作系统应用数据目录加载 collections.json */
 #[tauri::command]
 fn load_collections(app: AppHandle) -> Result<serde_json::Value, String> {
     let data_dir = app
@@ -409,7 +474,7 @@ fn load_collections(app: AppHandle) -> Result<serde_json::Value, String> {
     serde_json::from_str(&content).map_err(|e| format!("Failed to parse: {}", e))
 }
 
-/// Save collections to the app data directory.
+/** 将集合数据持久化到 collections.json */
 #[tauri::command]
 fn save_collections(app: AppHandle, data: serde_json::Value) -> Result<(), String> {
     let data_dir = app
@@ -425,6 +490,14 @@ fn save_collections(app: AppHandle, data: serde_json::Value) -> Result<(), Strin
     Ok(())
 }
 
+/**
+ * 应用入口
+ *
+ * 1. 初始化 LogStore（Mutex 包裹的 Vec，线程共享）
+ * 2. 注册所有 Tauri 命令
+ * 3. 在 setup 中创建第二个"日志"窗口（900×550）
+ * 4. 启动 GUI 事件循环
+ */
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -442,6 +515,7 @@ pub fn run() {
             save_collections,
         ])
         .setup(|app| {
+            // 创建独立的日志查看窗口（标签为 "logs"）
             let _ = tauri::WebviewWindowBuilder::new(
                 app,
                 "logs",
