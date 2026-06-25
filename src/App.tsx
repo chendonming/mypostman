@@ -22,7 +22,7 @@ export default function App() {
           method={state.method}
           onMethodChange={state.setMethod}
           url={state.url}
-          onUrlChange={state.setUrl}
+          onUrlChange={state.onUrlChange}
           headers={state.headers}
           onAddHeader={state.addHeader}
           onUpdateHeader={state.updateHeader}
@@ -39,6 +39,10 @@ export default function App() {
           onAuthTypeChange={state.setAuthType}
           bearerToken={state.bearerToken}
           onBearerTokenChange={state.setBearerToken}
+          rawParams={state.rawParams}
+          onAddParam={state.addParam}
+          onUpdateParam={state.updateParam}
+          onRemoveParam={state.removeParam}
         />
 
         <div className="flex-1 min-h-0 border-t border-pulse-border">

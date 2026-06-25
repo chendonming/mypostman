@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type {
   HttpMethod,
@@ -11,6 +11,41 @@ import type {
   AuthType,
 } from "../types";
 
+/* ── Query-string helpers ── */
+
+function parseUrlParams(url: string): HeaderInput[] {
+  const qIndex = url.indexOf("?");
+  if (qIndex === -1) return [{ key: "", value: "", enabled: true }];
+  const query = url.slice(qIndex + 1).split("#")[0]; // strip hash
+  if (!query) return [{ key: "", value: "", enabled: true }];
+  const pairs = query.split("&").filter(Boolean);
+  if (pairs.length === 0) return [{ key: "", value: "", enabled: true }];
+  return pairs.map((pair) => {
+    const eq = pair.indexOf("=");
+    if (eq === -1)
+      return { key: decodeURIComponent(pair), value: "", enabled: true };
+    return {
+      key: decodeURIComponent(pair.slice(0, eq)),
+      value: decodeURIComponent(pair.slice(eq + 1)),
+      enabled: true,
+    };
+  });
+}
+
+function getBaseUrl(url: string): string {
+  const q = url.indexOf("?");
+  return q >= 0 ? url.slice(0, q) : url;
+}
+
+function buildUrlWithParams(base: string, params: HeaderInput[]): string {
+  const active = params.filter((p) => p.key.trim() && p.enabled);
+  if (active.length === 0) return base;
+  const qs = active
+    .map((p) => `${encodeURIComponent(p.key)}=${encodeURIComponent(p.value)}`)
+    .join("&");
+  return `${base}?${qs}`;
+}
+
 export function usePulse() {
   const [method, setMethod] = useState<HttpMethod>("GET");
   const [url, setUrl] = useState("");
@@ -21,7 +56,9 @@ export function usePulse() {
   const [contentType, setContentType] = useState("application/json");
   const [authType, setAuthType] = useState<AuthType>("none");
   const [bearerToken, setBearerToken] = useState("");
-  const [rawParams, setRawParams] = useState<HeaderInput[]>([]);
+  const [rawParams, setRawParams] = useState<HeaderInput[]>([
+    { key: "", value: "", enabled: true },
+  ]);
   const [requestTab, setRequestTab] = useState<RequestTab>("headers");
 
   const [response, setResponse] = useState<ResponseData | null>(null);
@@ -126,15 +163,63 @@ export function usePulse() {
     setHeaders((prev) => prev.filter((_, i) => i !== index));
   }, []);
 
+  /* ── URL / Params bidirectional sync ── */
+
+  const skipUrlSync = useRef(false);
+  const prevParamsJson = useRef("");
+
+  const handleUrlChange = useCallback((newUrl: string) => {
+    setUrl(newUrl);
+    skipUrlSync.current = true;
+    setRawParams(parseUrlParams(newUrl));
+  }, []);
+
+  // Watch rawParams changes → update URL (skip when the change came from handleUrlChange)
+  useEffect(() => {
+    if (skipUrlSync.current) {
+      skipUrlSync.current = false;
+      return;
+    }
+    const json = JSON.stringify(rawParams);
+    if (json === prevParamsJson.current) return;
+    prevParamsJson.current = json;
+
+    const base = getBaseUrl(url);
+    if (!base) return;
+    const newUrl = buildUrlWithParams(base, rawParams);
+    if (newUrl !== url) setUrl(newUrl);
+  }, [rawParams, url]);
+
+  const addParam = useCallback(() => {
+    setRawParams((prev) => [...prev, { key: "", value: "", enabled: true }]);
+  }, []);
+
+  const updateParam = useCallback(
+    (index: number, field: keyof HeaderInput, value: string | boolean) => {
+      setRawParams((prev) => {
+        const next = [...prev];
+        next[index] = { ...next[index], [field]: value };
+        return next;
+      });
+    },
+    [],
+  );
+
+  const removeParam = useCallback((index: number) => {
+    setRawParams((prev) => prev.filter((_, i) => i !== index));
+  }, []);
+
   const loadFromHistory = useCallback((item: HistoryItem) => {
     setMethod(item.method as HttpMethod);
     setUrl(item.url);
+    setRawParams(parseUrlParams(item.url));
   }, []);
 
   const loadCollectionRequest = useCallback(
     (item: { method: string; url: string }) => {
       setMethod(item.method as HttpMethod);
       setUrl(item.url);
+      setRawParams(parseUrlParams(item.url));
     },
     [],
   );
@@ -152,14 +237,16 @@ export function usePulse() {
     method,
     setMethod,
     url,
-    setUrl,
+    onUrlChange: handleUrlChange,
     headers,
     body,
     setBody,
     contentType,
     setContentType,
     rawParams,
-    setRawParams,
+    addParam,
+    updateParam,
+    removeParam,
     requestTab,
     setRequestTab,
     response,

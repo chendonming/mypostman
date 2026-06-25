@@ -23,6 +23,10 @@ interface RequestPanelProps {
   onAuthTypeChange: (t: AuthType) => void;
   bearerToken: string;
   onBearerTokenChange: (t: string) => void;
+  rawParams: HeaderInput[];
+  onAddParam: () => void;
+  onUpdateParam: (i: number, f: keyof HeaderInput, v: string | boolean) => void;
+  onRemoveParam: (i: number) => void;
 }
 
 const METHODS: HttpMethod[] = [
@@ -74,6 +78,10 @@ export default function RequestPanel({
   onAuthTypeChange,
   bearerToken,
   onBearerTokenChange,
+  rawParams,
+  onAddParam,
+  onUpdateParam,
+  onRemoveParam,
 }: RequestPanelProps) {
   const urlRef = useRef<HTMLInputElement>(null);
 
@@ -222,6 +230,21 @@ export default function RequestPanel({
           )}
         </button>
         <button
+          onClick={() => onRequestTabChange("params")}
+          className={`pb-2 pt-1 px-3 text-xs font-medium transition-colors border-b-2 ${
+            requestTab === "params"
+              ? "text-pulse-accent border-pulse-accent"
+              : "text-pulse-text-muted border-transparent hover:text-pulse-text-secondary hover:border-pulse-border"
+          }`}
+        >
+          Params
+          {rawParams.some((p) => p.key.trim()) && (
+            <span className="ml-1.5 px-1 py-0.5 text-[10px] rounded bg-pulse-accent/10 text-pulse-accent">
+              {rawParams.filter((p) => p.key.trim()).length}
+            </span>
+          )}
+        </button>
+        <button
           onClick={() => onRequestTabChange("headers")}
           className={`pb-2 pt-1 px-3 text-xs font-medium transition-colors border-b-2 ${
             requestTab === "headers"
@@ -262,6 +285,87 @@ export default function RequestPanel({
             bearerToken={bearerToken}
             onBearerTokenChange={onBearerTokenChange}
           />
+        )}
+
+        {requestTab === "params" && (
+          <div className="p-2 space-y-1">
+            <div className="grid grid-cols-[1fr_1fr_24px] gap-1.5 text-[11px] text-pulse-text-muted font-medium px-2 pb-1">
+              <span>Key</span>
+              <span>Value</span>
+            </div>
+            {rawParams.map((param, i) => (
+              <div key={i} className="grid grid-cols-[1fr_1fr_24px] gap-1.5 items-center">
+                <div className="flex items-center gap-1.5">
+                  <button
+                    onClick={() => onUpdateParam(i, "enabled", !param.enabled)}
+                    className={`shrink-0 w-3.5 h-3.5 rounded border ${
+                      param.enabled
+                        ? "bg-pulse-accent border-pulse-accent"
+                        : "bg-pulse-deepest border-pulse-border"
+                    } flex items-center justify-center transition-colors`}
+                  >
+                    {param.enabled && (
+                      <svg
+                        className="w-2.5 h-2.5 text-pulse-deepest"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={3}
+                          d="M5 13l4 4L19 7"
+                        />
+                      </svg>
+                    )}
+                  </button>
+                  <input
+                    type="text"
+                    value={param.key}
+                    onChange={(e) =>
+                      onUpdateParam(i, "key", e.target.value)
+                    }
+                    placeholder="Parameter name"
+                    className="flex-1 bg-pulse-deepest border border-pulse-border rounded px-2 py-1 text-xs font-mono text-pulse-text-primary placeholder-pulse-text-muted/50 transition-colors"
+                  />
+                </div>
+                <input
+                  type="text"
+                  value={param.value}
+                  onChange={(e) =>
+                    onUpdateParam(i, "value", e.target.value)
+                  }
+                  placeholder="Value"
+                  className="bg-pulse-deepest border border-pulse-border rounded px-2 py-1 text-xs font-mono text-pulse-text-primary placeholder-pulse-text-muted/50 transition-colors"
+                />
+                <button
+                  onClick={() => onRemoveParam(i)}
+                  className="text-pulse-text-muted hover:text-pulse-rose transition-colors p-0.5"
+                >
+                  <svg
+                    className="w-3.5 h-3.5"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M6 18L18 6M6 6l12 12"
+                    />
+                  </svg>
+                </button>
+              </div>
+            ))}
+            <button
+              onClick={onAddParam}
+              className="btn-ghost text-xs w-full justify-center py-1"
+            >
+              + Add parameter
+            </button>
+          </div>
         )}
 
         {requestTab === "headers" && (
