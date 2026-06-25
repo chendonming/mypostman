@@ -1,4 +1,11 @@
-import type { Collection, HistoryItem, SidebarTab } from "../types";
+import type {
+  Collection,
+  HistoryItem,
+  SidebarTab,
+  Environment,
+  EnvironmentVariable,
+} from "../types";
+import EnvironmentPanel from "./EnvironmentPanel";
 
 interface SidebarProps {
   collections: Collection[];
@@ -7,6 +14,21 @@ interface SidebarProps {
   onTabChange: (tab: SidebarTab) => void;
   onLoadHistory: (item: HistoryItem) => void;
   onLoadRequest: (item: { method: string; url: string }) => void;
+  /* ── Environment props ── */
+  environments: Environment[];
+  activeEnvironmentId: string | null;
+  onAddEnvironment: () => void;
+  onDeleteEnvironment: (id: string) => void;
+  onRenameEnvironment: (id: string, name: string) => void;
+  onSetActiveEnvironment: (id: string | null) => void;
+  onAddVariable: (envId: string) => void;
+  onUpdateVariable: (
+    envId: string,
+    index: number,
+    field: keyof EnvironmentVariable,
+    value: string | boolean,
+  ) => void;
+  onRemoveVariable: (envId: string, index: number) => void;
 }
 
 const methodStyles: Record<string, string> = {
@@ -36,6 +58,15 @@ export default function Sidebar({
   onTabChange,
   onLoadHistory,
   onLoadRequest,
+  environments,
+  activeEnvironmentId,
+  onAddEnvironment,
+  onDeleteEnvironment,
+  onRenameEnvironment,
+  onSetActiveEnvironment,
+  onAddVariable,
+  onUpdateVariable,
+  onRemoveVariable,
 }: SidebarProps) {
   return (
     <aside className="w-60 flex flex-col border-r border-pulse-border bg-pulse-surface shrink-0">
@@ -85,6 +116,16 @@ export default function Sidebar({
         >
           History
         </button>
+        <button
+          onClick={() => onTabChange("environments")}
+          className={`flex-1 py-2 text-xs font-medium transition-colors ${
+            activeTab === "environments"
+              ? "text-pulse-accent border-b-2 border-pulse-accent"
+              : "text-pulse-text-muted hover:text-pulse-text-secondary"
+          }`}
+        >
+          Envs
+        </button>
       </div>
 
       {/* Content */}
@@ -117,7 +158,7 @@ export default function Sidebar({
               </div>
             ))}
           </div>
-        ) : (
+        ) : activeTab === "history" ? (
           <div className="py-2">
             {history.length === 0 ? (
               <div className="px-4 py-8 text-center text-xs text-pulse-text-muted">
@@ -165,6 +206,18 @@ export default function Sidebar({
               ))
             )}
           </div>
+        ) : (
+          <EnvironmentPanel
+            environments={environments}
+            activeEnvironmentId={activeEnvironmentId}
+            onAddEnvironment={onAddEnvironment}
+            onDeleteEnvironment={onDeleteEnvironment}
+            onRenameEnvironment={onRenameEnvironment}
+            onSetActiveEnvironment={onSetActiveEnvironment}
+            onAddVariable={onAddVariable}
+            onUpdateVariable={onUpdateVariable}
+            onRemoveVariable={onRemoveVariable}
+          />
         )}
       </div>
     </aside>

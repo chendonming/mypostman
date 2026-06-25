@@ -78,4 +78,21 @@ export interface LogEntry {
 }
 
 export type RequestTab = "params" | "auth" | "headers" | "body";
-export type SidebarTab = "collections" | "history";
+export type SidebarTab = "collections" | "history" | "environments";
+
+export interface EnvironmentVariable {
+  key: string;
+  value: string;
+  enabled: boolean;
+}
+
+export interface Environment {
+  id: string;
+  name: string;
+  variables: EnvironmentVariable[];
+}
+
+export interface EnvironmentData {
+  environments: Environment[];
+  active_id: string | null;
+}

@@ -23,6 +23,26 @@ pub struct HeaderInput {
     pub enabled: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EnvironmentVariable {
+    pub key: String,
+    pub value: String,
+    pub enabled: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Environment {
+    pub id: String,
+    pub name: String,
+    pub variables: Vec<EnvironmentVariable>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct EnvironmentData {
+    pub environments: Vec<Environment>,
+    pub active_id: Option<String>,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RequestInput {
     pub method: String,
@@ -102,11 +122,41 @@ fn now_millis() -> u64 {
         .as_millis() as u64
 }
 
+fn substitute_variables(input: &str, variables: &[EnvironmentVariable]) -> String {
+    let mut result = input.to_string();
+    for var in variables {
+        if var.enabled {
+            let pattern = format!("{{{{{}}}}}", var.key);
+            result = result.replace(&pattern, &var.value);
+        }
+    }
+    result
+}
+
 #[tauri::command]
-async fn send_request(app: AppHandle, input: RequestInput) -> Result<ResponseData, String> {
+async fn send_request(app: AppHandle, input: RequestInput, variables: Vec<EnvironmentVariable>) -> Result<ResponseData, String> {
     let full_start = Instant::now();
     let method = input.method.to_uppercase();
-    let url = input.url.clone();
+
+    // Substitute {{variables}} in all request fields
+    let url = substitute_variables(&input.url, &variables);
+    let substituted_headers: Vec<HeaderInput> = input
+        .headers
+        .iter()
+        .map(|h| HeaderInput {
+            key: h.key.clone(),
+            value: substitute_variables(&h.value, &variables),
+            enabled: h.enabled,
+        })
+        .collect();
+    let body = input
+        .body
+        .as_ref()
+        .map(|b| substitute_variables(b, &variables));
+    let content_type = input
+        .content_type
+        .as_ref()
+        .map(|ct| substitute_variables(ct, &variables));
 
     let client = Client::builder()
         .timeout(Duration::from_secs(60))
@@ -117,10 +167,10 @@ async fn send_request(app: AppHandle, input: RequestInput) -> Result<ResponseDat
         .parse::<reqwest::Method>()
         .map_err(|_| format!("Invalid HTTP method: {}", method))?;
 
-    let mut req = client.request(req_method, &input.url);
+    let mut req = client.request(req_method, &url);
 
     let mut headers = HeaderMap::new();
-    for h in &input.headers {
+    for h in &substituted_headers {
         if h.enabled && !h.key.trim().is_empty() {
             if let (Ok(n), Ok(v)) = (
                 HeaderName::from_bytes(h.key.trim().as_bytes()),
@@ -131,7 +181,7 @@ async fn send_request(app: AppHandle, input: RequestInput) -> Result<ResponseDat
         }
     }
 
-    if let Some(ct) = &input.content_type {
+    if let Some(ct) = &content_type {
         if !headers.contains_key("content-type") && !ct.is_empty() {
             if let Ok(v) = HeaderValue::from_str(ct) {
                 headers.insert("content-type", v);
@@ -141,15 +191,15 @@ async fn send_request(app: AppHandle, input: RequestInput) -> Result<ResponseDat
 
     req = req.headers(headers);
 
-    if let Some(body) = &input.body {
-        if !body.is_empty() {
-            req = req.body(body.clone());
+    if let Some(body_str) = &body {
+        if !body_str.is_empty() {
+            req = req.body(body_str.clone());
         }
     }
 
-    // Capture request info for logging (before input is moved)
-    let request_headers: Vec<HeaderInput> = input.headers.clone();
-    let request_body: Option<String> = input.body.as_ref().map(|b| truncate_body(b));
+    // Capture request info for logging
+    let request_headers: Vec<HeaderInput> = substituted_headers.clone();
+    let request_body: Option<String> = body.as_ref().map(|b| truncate_body(b));
 
     let before_send = Instant::now();
     let resp_result = req.send().await;
@@ -304,6 +354,43 @@ fn clear_logs(store: tauri::State<'_, Mutex<LogStore>>) -> Result<(), String> {
     Ok(())
 }
 
+/// Load environments from the app data directory.
+#[tauri::command]
+fn load_environments(app: AppHandle) -> Result<EnvironmentData, String> {
+    let data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to get app data dir: {}", e))?;
+    let file_path = data_dir.join("environments.json");
+
+    if !file_path.exists() {
+        return Ok(EnvironmentData {
+            environments: vec![],
+            active_id: None,
+        });
+    }
+
+    let content =
+        std::fs::read_to_string(&file_path).map_err(|e| format!("Failed to read file: {}", e))?;
+    serde_json::from_str(&content).map_err(|e| format!("Failed to parse: {}", e))
+}
+
+/// Save environments to the app data directory.
+#[tauri::command]
+fn save_environments(app: AppHandle, data: EnvironmentData) -> Result<(), String> {
+    let data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to get app data dir: {}", e))?;
+    std::fs::create_dir_all(&data_dir)
+        .map_err(|e| format!("Failed to create data dir: {}", e))?;
+    let file_path = data_dir.join("environments.json");
+    let content =
+        serde_json::to_string_pretty(&data).map_err(|e| format!("Failed to serialize: {}", e))?;
+    std::fs::write(&file_path, content).map_err(|e| format!("Failed to write file: {}", e))?;
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -315,6 +402,8 @@ pub fn run() {
             send_request,
             get_logs,
             clear_logs,
+            load_environments,
+            save_environments,
         ])
         .setup(|app| {
             let _ = tauri::WebviewWindowBuilder::new(

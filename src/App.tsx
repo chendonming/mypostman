@@ -15,6 +15,16 @@ export default function App() {
         onTabChange={state.setSidebarTab}
         onLoadHistory={state.loadFromHistory}
         onLoadRequest={state.loadCollectionRequest}
+        /* ── Environment props ── */
+        environments={state.environments}
+        activeEnvironmentId={state.activeEnvironmentId}
+        onAddEnvironment={state.addEnvironment}
+        onDeleteEnvironment={state.deleteEnvironment}
+        onRenameEnvironment={state.renameEnvironment}
+        onSetActiveEnvironment={state.setActiveEnvironment}
+        onAddVariable={state.addVariable}
+        onUpdateVariable={state.updateVariable}
+        onRemoveVariable={state.removeVariable}
       />
 
       <main className="flex-1 flex flex-col min-w-0">

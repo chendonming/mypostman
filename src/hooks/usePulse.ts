@@ -9,6 +9,9 @@ import type {
   Collection,
   HistoryItem,
   AuthType,
+  Environment,
+  EnvironmentVariable,
+  EnvironmentData,
 } from "../types";
 
 /* ── Query-string helpers ── */
@@ -90,6 +93,30 @@ export function usePulse() {
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [sidebarTab, setSidebarTab] = useState<SidebarTab>("collections");
 
+  /* ── Environment state ── */
+  const [environments, setEnvironments] = useState<Environment[]>([]);
+  const [activeEnvironmentId, setActiveEnvironmentId] = useState<string | null>(null);
+  const [envLoaded, setEnvLoaded] = useState(false);
+
+  // Load environments from Rust on mount
+  useEffect(() => {
+    invoke<EnvironmentData>("load_environments")
+      .then((data) => {
+        setEnvironments(data.environments);
+        setActiveEnvironmentId(data.active_id);
+      })
+      .catch((e) => console.error("Failed to load environments:", e))
+      .finally(() => setEnvLoaded(true));
+  }, []);
+
+  // Persist environments to Rust whenever they change (skip the initial load)
+  useEffect(() => {
+    if (!envLoaded) return;
+    invoke("save_environments", {
+      data: { environments, active_id: activeEnvironmentId },
+    }).catch((e) => console.error("Failed to save environments:", e));
+  }, [environments, activeEnvironmentId, envLoaded]);
+
   const sendRequest = useCallback(async () => {
     if (!url.trim()) return;
 
@@ -106,7 +133,6 @@ export function usePulse() {
         if (!token.startsWith("Bearer ")) {
           token = `Bearer ${token}`;
         }
-        // Remove any existing Authorization header to avoid duplicates
         cleanHeaders = cleanHeaders.filter(
           (h) => h.key.toLowerCase() !== "authorization",
         );
@@ -117,6 +143,11 @@ export function usePulse() {
         });
       }
 
+      // Get active environment's enabled variables for substitution
+      const activeEnv = environments.find((e) => e.id === activeEnvironmentId);
+      const activeVars: EnvironmentVariable[] =
+        activeEnv?.variables.filter((v) => v.enabled) ?? [];
+
       const result = await invoke<ResponseData>("send_request", {
         input: {
           method,
@@ -125,6 +156,7 @@ export function usePulse() {
           body: body || null,
           content_type: contentType || null,
         },
+        variables: activeVars,
       });
       setResponse(result);
       setHistory((prev) => [
@@ -142,7 +174,7 @@ export function usePulse() {
     } finally {
       setIsLoading(false);
     }
-  }, [method, url, headers, body, contentType, authType, bearerToken]);
+  }, [method, url, headers, body, contentType, authType, bearerToken, environments, activeEnvironmentId]);
 
   const addHeader = useCallback(() => {
     setHeaders((prev) => [...prev, { key: "", value: "", enabled: true }]);
@@ -229,6 +261,70 @@ export function usePulse() {
     setError(null);
   }, []);
 
+  /* ── Environment CRUD ── */
+
+  const addEnvironment = useCallback(() => {
+    const newEnv: Environment = {
+      id: crypto.randomUUID(),
+      name: `New Environment ${environments.length + 1}`,
+      variables: [{ key: "", value: "", enabled: true }],
+    };
+    setEnvironments((prev) => [...prev, newEnv]);
+  }, [environments.length]);
+
+  const deleteEnvironment = useCallback((id: string) => {
+    setEnvironments((prev) => prev.filter((e) => e.id !== id));
+    setActiveEnvironmentId((prev) => (prev === id ? null : prev));
+  }, []);
+
+  const renameEnvironment = useCallback((id: string, name: string) => {
+    setEnvironments((prev) =>
+      prev.map((e) => (e.id === id ? { ...e, name } : e)),
+    );
+  }, []);
+
+  const setActiveEnvironment = useCallback((id: string | null) => {
+    setActiveEnvironmentId(id);
+  }, []);
+
+  const addVariable = useCallback((envId: string) => {
+    setEnvironments((prev) =>
+      prev.map((e) =>
+        e.id === envId
+          ? { ...e, variables: [...e.variables, { key: "", value: "", enabled: true }] }
+          : e,
+      ),
+    );
+  }, []);
+
+  const updateVariable = useCallback(
+    (envId: string, index: number, field: keyof EnvironmentVariable, value: string | boolean) => {
+      setEnvironments((prev) =>
+        prev.map((e) =>
+          e.id === envId
+            ? {
+                ...e,
+                variables: e.variables.map((v, i) =>
+                  i === index ? { ...v, [field]: value } : v,
+                ),
+              }
+            : e,
+        ),
+      );
+    },
+    [],
+  );
+
+  const removeVariable = useCallback((envId: string, index: number) => {
+    setEnvironments((prev) =>
+      prev.map((e) =>
+        e.id === envId
+          ? { ...e, variables: e.variables.filter((_, i) => i !== index) }
+          : e,
+      ),
+    );
+  }, []);
+
   return {
     authType,
     setAuthType,
@@ -265,5 +361,15 @@ export function usePulse() {
     loadFromHistory,
     loadCollectionRequest,
     clearResponse,
+    /* ── Environment exports ── */
+    environments,
+    activeEnvironmentId,
+    addEnvironment,
+    deleteEnvironment,
+    renameEnvironment,
+    setActiveEnvironment,
+    addVariable,
+    updateVariable,
+    removeVariable,
   };
 }
