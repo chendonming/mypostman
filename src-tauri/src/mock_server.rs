@@ -198,10 +198,10 @@ async fn handle_delete(
 /** 构建 axum 路由表 */
 fn create_router() -> Router {
     Router::new()
-        .route("/mock/api/get/{count}", get(handle_get))
+        .route("/mock/api/get/:count", get(handle_get))
         .route("/mock/api/data", post(handle_post))
-        .route("/mock/api/data/{id}", put(handle_put))
-        .route("/mock/api/data/{id}", delete(handle_delete))
+        .route("/mock/api/data/:id", put(handle_put))
+        .route("/mock/api/data/:id", delete(handle_delete))
 }
 
 /**
@@ -225,10 +225,10 @@ pub async fn start() {
 
     eprintln!("[mock-server] Ready at http://{addr}/mock/api/get/5");
     eprintln!("[mock-server] Endpoints:");
-    eprintln!("[mock-server]   GET    /mock/api/get/{{count}}  - 返回 count 条 Mock 数据");
+    eprintln!("[mock-server]   GET    /mock/api/get/:count  - 返回 count 条 Mock 数据");
     eprintln!("[mock-server]   POST   /mock/api/data          - 回显请求体");
-    eprintln!("[mock-server]   PUT    /mock/api/data/{{id}}    - 更新资源");
-    eprintln!("[mock-server]   DELETE /mock/api/data/{{id}}    - 删除资源");
+    eprintln!("[mock-server]   PUT    /mock/api/data/:id    - 更新资源");
+    eprintln!("[mock-server]   DELETE /mock/api/data/:id    - 删除资源");
 
     if let Err(e) = axum::serve(listener, app).await {
         eprintln!("[mock-server] Server error: {e}");
