@@ -1,6 +1,6 @@
 import type { ResponseData } from "../types";
 import WaterfallChart from "./WaterfallChart";
-import JsonHighlighter from "./JsonHighlighter";
+import JsonViewer from "./JsonViewer";
 
 interface ResponsePanelProps {
   response: ResponseData | null;
@@ -189,9 +189,7 @@ export default function ResponsePanel({
         {/* Tab 内容 */}
         <div className="flex-1 overflow-auto">
           {responseTab === "body" ? (
-            <pre className="p-4 text-xs font-mono text-pulse-text-primary whitespace-pre-wrap break-all">
-              <JsonHighlighter body={response.body} contentType={response.content_type} />
-            </pre>
+            <JsonViewer body={response.body} contentType={response.content_type} />
           ) : (
             <div className="p-3 space-y-1">
               {Object.entries(response.headers).map(([key, value]) => (
