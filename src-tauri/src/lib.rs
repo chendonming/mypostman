@@ -55,9 +55,6 @@ pub struct EnvironmentVariable {
 pub struct Environment {
     pub id: String,
     pub name: String,
-    /** Base URL，激活此环境时相对路径会自动拼接（向前兼容：旧数据缺失时默认为空） */
-    #[serde(default)]
-    pub base_url: String,
     pub variables: Vec<EnvironmentVariable>,
 }
 
@@ -523,14 +520,28 @@ pub fn run() {
         ])
         .setup(|app| {
             // 创建独立的日志查看窗口（标签为 "logs"）
-            let _ = tauri::WebviewWindowBuilder::new(
-                app,
-                "logs",
-                tauri::WebviewUrl::App("index.html".into()),
-            )
-            .title("Pulse - Logs")
-            .inner_size(900.0, 550.0)
-            .build();
+            // - dev 模式：从 Vite 开发服务器加载，确保热更新
+            // - 正式构建：从打包后的 dist/index.html 加载
+            let app_handle = app.handle().clone();
+            let logs_url = if tauri::is_dev() {
+                tauri::WebviewUrl::External(
+                    "http://localhost:1420".parse().expect("valid dev URL"),
+                )
+            } else {
+                tauri::WebviewUrl::App("index.html".into())
+            };
+
+            match tauri::WebviewWindowBuilder::new(&app_handle, "logs", logs_url)
+                .title("Pulse - Logs")
+                .inner_size(900.0, 550.0)
+                .build()
+            {
+                Ok(_) => {
+                    #[cfg(feature = "mock-server")]
+                    eprintln!("[logs] Log viewer window created");
+                }
+                Err(e) => eprintln!("[logs] Failed to create log viewer window: {}", e),
+            }
 
             // 启动 Mock HTTP 测试服务器（feature=mock-server 时生效）
             #[cfg(feature = "mock-server")]

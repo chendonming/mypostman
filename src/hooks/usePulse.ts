@@ -98,6 +98,7 @@ export function usePulse() {
     {
       id: "default",
       name: "My Collection",
+      base_url: '',
       authType: "inherit",
       bearerToken: "",
       requests: [
@@ -186,6 +187,45 @@ export function usePulse() {
     }).catch((e) => console.error("Failed to save collections:", e));
   }, [collections, collectionsLoaded]);
 
+  // ── 数据迁移：将 Environment 中的 base_url 迁移到 Collection ──
+  // 旧版本中 base_url 存储在 Environment 中，新版本改为 Collection 级配置。
+  // 首次加载时，自动将激活环境的 base_url 复制到所有集合中，然后清空环境上的 base_url。
+  const baseUrlMigrated = useRef(false);
+
+  useEffect(() => {
+    if (!envLoaded || !collectionsLoaded) return;
+    if (baseUrlMigrated.current) return;
+
+    // 从已加载的旧数据中读取 base_url（Environment 类型已无该字段）
+    const oldEnvs = environments as unknown as Array<{ id: string; base_url?: string }>;
+    const hasOldBaseUrl = oldEnvs.some((e) => e.base_url);
+    if (!hasOldBaseUrl) {
+      baseUrlMigrated.current = true;
+      return;
+    }
+
+    // 取激活环境的 base_url 作为迁移源
+    const active = oldEnvs.find((e) => e.id === activeEnvironmentId);
+    const envBaseUrl = active?.base_url ?? '';
+    if (envBaseUrl) {
+      setCollections((prev) =>
+        prev.map((c) => ({
+          ...c,
+          base_url: c.base_url || envBaseUrl,
+        })),
+      );
+    }
+
+    // 清除所有环境上的 base_url
+    setEnvironments((prev) =>
+      prev.map((e) => {
+        const { base_url: _removed, ...rest } = e as unknown as { base_url?: string };
+        return rest;
+      }) as Environment[],
+    );
+    baseUrlMigrated.current = true;
+  }, [envLoaded, collectionsLoaded, environments, activeEnvironmentId]);
+
   // ── 核心：发送 HTTP 请求 ──
 
   const sendRequest = useCallback(async () => {
@@ -233,10 +273,18 @@ export function usePulse() {
       const activeVars: EnvironmentVariable[] =
         activeEnv?.variables.filter((v) => v.enabled) ?? [];
 
-      // Base URL 拼接：若 URL 不以 http/https 开头，自动拼接激活环境的 base_url
+      // Base URL 拼接：从正在编辑的请求所属的 Collection 获取 base_url
+      let collectionBaseUrl = '';
+      if (editingRequest) {
+        const col = collections.find((c) => c.id === editingRequest.collectionId);
+        if (col?.base_url) {
+          collectionBaseUrl = col.base_url;
+        }
+      }
+
       let finalUrl = url.trim();
-      if (activeEnv?.base_url && !finalUrl.startsWith('http://') && !finalUrl.startsWith('https://')) {
-        const base = activeEnv.base_url.replace(/\/+$/, ''); // 去掉末尾斜杠
+      if (collectionBaseUrl && !finalUrl.startsWith('http://') && !finalUrl.startsWith('https://')) {
+        const base = collectionBaseUrl.replace(/\/+$/, ''); // 去掉末尾斜杠
         const path = finalUrl.startsWith('/') ? finalUrl : '/' + finalUrl;
         finalUrl = base + path;
       }
@@ -496,7 +544,7 @@ export function usePulse() {
     if (collections.length === 0) {
       colId = crypto.randomUUID();
       setCollections([
-        { id: colId, name: "My Collection", authType: "inherit", bearerToken: "", requests: [newReq] },
+        { id: colId, name: "My Collection", base_url: '', authType: "inherit", bearerToken: "", requests: [newReq] },
       ]);
     } else {
       colId = collections[0].id;
@@ -573,6 +621,7 @@ export function usePulse() {
     const newCol: Collection = {
       id: crypto.randomUUID(),
       name: name.trim(),
+      base_url: '',
       authType: "inherit",
       bearerToken: "",
       requests: [],
@@ -663,7 +712,6 @@ export function usePulse() {
     const newEnv: Environment = {
       id: crypto.randomUUID(),
       name: `New Environment ${environments.length + 1}`,
-      base_url: '',
       variables: [{ key: "", value: "", enabled: true }],
     };
     setEnvironments((prev) => [...prev, newEnv]);
@@ -682,10 +730,10 @@ export function usePulse() {
     );
   }, []);
 
-  /** 更新环境的 Base URL */
-  const updateBaseUrl = useCallback((envId: string, baseUrl: string) => {
-    setEnvironments((prev) =>
-      prev.map((e) => (e.id === envId ? { ...e, base_url: baseUrl } : e)),
+  /** 更新集合的 Base URL */
+  const updateCollectionBaseUrl = useCallback((collectionId: string, baseUrl: string) => {
+    setCollections((prev) =>
+      prev.map((c) => (c.id === collectionId ? { ...c, base_url: baseUrl } : c)),
     );
   }, []);
 
@@ -782,6 +830,7 @@ export function usePulse() {
     renameCollectionRequest,
     addCollection,
     updateCollectionAuth,
+    updateCollectionBaseUrl,
     moveRequest,
     moveCollection,
     editingCollectionName,
@@ -798,7 +847,6 @@ export function usePulse() {
     addEnvironment,
     deleteEnvironment,
     renameEnvironment,
-    updateBaseUrl,
     setActiveEnvironment,
     addVariable,
     updateVariable,

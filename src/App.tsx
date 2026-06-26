@@ -37,6 +37,7 @@ export default function App() {
         onUpdateCollectionAuth={state.updateCollectionAuth}
         onMoveRequest={state.moveRequest}
         onMoveCollection={state.moveCollection}
+        onUpdateCollectionBaseUrl={state.updateCollectionBaseUrl}
         /* ── 环境变量 ── */
         environments={state.environments}
         activeEnvironmentId={state.activeEnvironmentId}
@@ -47,7 +48,6 @@ export default function App() {
         onAddVariable={state.addVariable}
         onUpdateVariable={state.updateVariable}
         onRemoveVariable={state.removeVariable}
-        onUpdateBaseUrl={state.updateBaseUrl}
       />
 
       <main className="flex-1 flex flex-col min-w-0">

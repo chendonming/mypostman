@@ -300,6 +300,8 @@ interface SidebarProps {
     targetIndex: number,
   ) => void;
   onMoveCollection: (collectionId: string, targetIndex: number) => void;
+  /** 更新集合的 Base URL */
+  onUpdateCollectionBaseUrl: (collectionId: string, baseUrl: string) => void;
   /* ── 环境变量 ── */
   environments: Environment[];
   activeEnvironmentId: string | null;
@@ -315,8 +317,6 @@ interface SidebarProps {
     value: string | boolean,
   ) => void;
   onRemoveVariable: (envId: string, index: number) => void;
-  /** Base URL 更新回调 */
-  onUpdateBaseUrl: (envId: string, baseUrl: string) => void;
 }
 
 // ============================================================
@@ -342,6 +342,7 @@ export default function Sidebar({
   onUpdateCollectionAuth,
   onMoveRequest,
   onMoveCollection,
+  onUpdateCollectionBaseUrl,
   environments,
   activeEnvironmentId,
   onAddEnvironment,
@@ -351,7 +352,6 @@ export default function Sidebar({
   onAddVariable,
   onUpdateVariable,
   onRemoveVariable,
-  onUpdateBaseUrl,
 }: SidebarProps) {
   const [expandedAuthCol, setExpandedAuthCol] = useState<string | null>(null);
 
@@ -560,6 +560,18 @@ export default function Sidebar({
                               count={col.requests.length}
                             />
 
+                            {/* 集合 Base URL 输入 */}
+                            <div className="px-3 py-1">
+                              <input
+                                value={col.base_url}
+                                onChange={(e) =>
+                                  onUpdateCollectionBaseUrl(col.id, e.target.value)
+                                }
+                                placeholder="Base URL (optional) — e.g. https://api.example.com"
+                                className="w-full bg-pulse-deepest border border-pulse-border rounded px-2 py-1 text-[10px] font-mono text-pulse-text-primary outline-none placeholder:text-pulse-text-muted/60 focus:border-pulse-accent transition-colors"
+                              />
+                            </div>
+
                             {/* 集合认证配置折叠行 */}
                             <button
                               onClick={() =>
@@ -760,7 +772,6 @@ export default function Sidebar({
             onAddVariable={onAddVariable}
             onUpdateVariable={onUpdateVariable}
             onRemoveVariable={onRemoveVariable}
-            onUpdateBaseUrl={onUpdateBaseUrl}
           />
         )}
       </div>

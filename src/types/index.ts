@@ -41,6 +41,8 @@ export interface Collection {
   /** 集合级默认认证方式（子请求可继承） */
   authType: AuthType;
   bearerToken: string;
+  /** Base URL：编辑集合中的请求时，相对路径会自动拼接此前缀 */
+  base_url: string;
 }
 
 /** 集合中的单个请求定义 */
@@ -120,8 +122,6 @@ export interface EnvironmentVariable {
 export interface Environment {
   id: string;
   name: string;
-  /** Base URL：激活此环境时，相对路径请求会自动拼接此前缀（类似 nginx proxy_pass） */
-  base_url: string;
   variables: EnvironmentVariable[];
 }
 
