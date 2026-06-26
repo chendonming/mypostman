@@ -47,6 +47,7 @@ export default function App() {
         onAddVariable={state.addVariable}
         onUpdateVariable={state.updateVariable}
         onRemoveVariable={state.removeVariable}
+        onUpdateBaseUrl={state.updateBaseUrl}
       />
 
       <main className="flex-1 flex flex-col min-w-0">

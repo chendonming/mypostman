@@ -16,6 +16,8 @@ interface EnvironmentPanelProps {
     value: string | boolean,
   ) => void;
   onRemoveVariable: (envId: string, index: number) => void;
+  /** Base URL 更新回调 */
+  onUpdateBaseUrl: (envId: string, baseUrl: string) => void;
 }
 
 /**
@@ -37,6 +39,7 @@ export default function EnvironmentPanel({
   onAddVariable,
   onUpdateVariable,
   onRemoveVariable,
+  onUpdateBaseUrl,
 }: EnvironmentPanelProps) {
   const [selectedEnvId, setSelectedEnvId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState<string | null>(null);
@@ -194,6 +197,22 @@ export default function EnvironmentPanel({
                 {/* 变量编辑器（选中环境时展开） */}
                 {selectedEnvId === env.id && (
                   <div className="px-3 pb-2">
+                    {/* Base URL 输入框 */}
+                    <div className="mt-1.5 mb-2">
+                      <label className="text-[10px] font-semibold text-pulse-text-muted uppercase tracking-wider block mb-1">
+                        Base URL
+                      </label>
+                      <input
+                        value={env.base_url}
+                        onChange={(e) => onUpdateBaseUrl(env.id, e.target.value)}
+                        placeholder="https://api.example.com"
+                        className="w-full bg-pulse-deepest border border-pulse-border rounded px-2 py-1 text-[10px] font-mono text-pulse-text-primary outline-none placeholder:text-pulse-text-muted focus:border-pulse-accent transition-colors"
+                      />
+                      <p className="text-[9px] text-pulse-text-muted mt-0.5">
+                        Relative paths in URL bar are auto-prepended with this Base URL.
+                      </p>
+                    </div>
+
                     <div className="flex items-center justify-between mt-1 mb-1">
                       <span className="text-[10px] font-semibold text-pulse-text-muted uppercase tracking-wider">
                         Variables

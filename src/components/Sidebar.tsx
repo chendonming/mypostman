@@ -315,6 +315,8 @@ interface SidebarProps {
     value: string | boolean,
   ) => void;
   onRemoveVariable: (envId: string, index: number) => void;
+  /** Base URL 更新回调 */
+  onUpdateBaseUrl: (envId: string, baseUrl: string) => void;
 }
 
 // ============================================================
@@ -349,6 +351,7 @@ export default function Sidebar({
   onAddVariable,
   onUpdateVariable,
   onRemoveVariable,
+  onUpdateBaseUrl,
 }: SidebarProps) {
   const [expandedAuthCol, setExpandedAuthCol] = useState<string | null>(null);
 
@@ -757,6 +760,7 @@ export default function Sidebar({
             onAddVariable={onAddVariable}
             onUpdateVariable={onUpdateVariable}
             onRemoveVariable={onRemoveVariable}
+            onUpdateBaseUrl={onUpdateBaseUrl}
           />
         )}
       </div>

@@ -51,6 +51,9 @@ pub struct EnvironmentVariable {
 pub struct Environment {
     pub id: String,
     pub name: String,
+    /** Base URL，激活此环境时相对路径会自动拼接（向前兼容：旧数据缺失时默认为空） */
+    #[serde(default)]
+    pub base_url: String,
     pub variables: Vec<EnvironmentVariable>,
 }
 

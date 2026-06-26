@@ -233,10 +233,18 @@ export function usePulse() {
       const activeVars: EnvironmentVariable[] =
         activeEnv?.variables.filter((v) => v.enabled) ?? [];
 
+      // Base URL 拼接：若 URL 不以 http/https 开头，自动拼接激活环境的 base_url
+      let finalUrl = url.trim();
+      if (activeEnv?.base_url && !finalUrl.startsWith('http://') && !finalUrl.startsWith('https://')) {
+        const base = activeEnv.base_url.replace(/\/+$/, ''); // 去掉末尾斜杠
+        const path = finalUrl.startsWith('/') ? finalUrl : '/' + finalUrl;
+        finalUrl = base + path;
+      }
+
       const result = await invoke<ResponseData>("send_request", {
         input: {
           method,
-          url: url.trim(),
+          url: finalUrl,
           headers: cleanHeaders,
           body: body || null,
           content_type: contentType || null,
@@ -655,6 +663,7 @@ export function usePulse() {
     const newEnv: Environment = {
       id: crypto.randomUUID(),
       name: `New Environment ${environments.length + 1}`,
+      base_url: '',
       variables: [{ key: "", value: "", enabled: true }],
     };
     setEnvironments((prev) => [...prev, newEnv]);
@@ -670,6 +679,13 @@ export function usePulse() {
   const renameEnvironment = useCallback((id: string, name: string) => {
     setEnvironments((prev) =>
       prev.map((e) => (e.id === id ? { ...e, name } : e)),
+    );
+  }, []);
+
+  /** 更新环境的 Base URL */
+  const updateBaseUrl = useCallback((envId: string, baseUrl: string) => {
+    setEnvironments((prev) =>
+      prev.map((e) => (e.id === envId ? { ...e, base_url: baseUrl } : e)),
     );
   }, []);
 
@@ -782,6 +798,7 @@ export function usePulse() {
     addEnvironment,
     deleteEnvironment,
     renameEnvironment,
+    updateBaseUrl,
     setActiveEnvironment,
     addVariable,
     updateVariable,

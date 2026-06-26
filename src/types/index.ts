@@ -120,6 +120,8 @@ export interface EnvironmentVariable {
 export interface Environment {
   id: string;
   name: string;
+  /** Base URL：激活此环境时，相对路径请求会自动拼接此前缀（类似 nginx proxy_pass） */
+  base_url: string;
   variables: EnvironmentVariable[];
 }
 
