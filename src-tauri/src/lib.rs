@@ -7,6 +7,10 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use tauri::{AppHandle, Emitter, Manager};
 
+// ===== Mock 测试服务器（feature flag 控制，默认不编译） =====
+#[cfg(feature = "mock-server")]
+mod mock_server;
+
 // ============================================================
 // 常量定义
 // ============================================================
@@ -527,6 +531,17 @@ pub fn run() {
             .title("Pulse - Logs")
             .inner_size(900.0, 550.0)
             .build();
+
+            // 启动 Mock HTTP 测试服务器（feature=mock-server 时生效）
+            #[cfg(feature = "mock-server")]
+            {
+                tauri::async_runtime::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                    mock_server::start().await;
+                });
+                eprintln!("[mock-server] Feature enabled — starting mock server on port 18789");
+            }
+
             Ok(())
         })
         .run(tauri::generate_context!())
