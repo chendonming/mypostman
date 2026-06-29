@@ -132,7 +132,7 @@ impl ToolRegistry {
     fn register_all(&mut self) {
         self.register(
             "send_request",
-            "发送 HTTP 请求并返回完整响应（含状态码、头、体、耗时和 JSON 分析）",
+            "发送 HTTP 请求（GET/POST/PUT/DELETE 等）并返回完整响应。当用户要求「发送请求」「调用 API」「测试接口」「请求一个 URL」时使用此工具。支持状态码、响应头、响应体、耗时和 JSON 自动分析。如需运行带断言的测试脚本，请优先使用 run_test_script 或 run_test_file。",
             serde_json::json!({
                 "type": "object",
                 "properties": {
@@ -165,7 +165,7 @@ impl ToolRegistry {
 
         self.register(
             "run_test_script",
-            "运行 YAML 格式的测试脚本（内联字符串），返回每个步骤的断言结果",
+            "运行 YAML 格式的测试脚本（内联字符串）。当用户要求「运行测试」「执行测试脚本」「验证测试用例」时使用此工具。返回每个步骤的断言结果（通过/失败）。如果脚本已保存为文件，请用 run_test_file 替代。",
             serde_json::json!({
                 "type": "object",
                 "properties": {
@@ -179,7 +179,7 @@ impl ToolRegistry {
 
         self.register(
             "run_test_file",
-            "从文件路径加载并运行 YAML 测试脚本",
+            "从文件路径加载并运行 YAML 测试脚本。当用户要求「运行测试文件」「执行已保存的测试脚本」或 create_test_script 刚生成脚本后需要运行验证时使用此工具。返回每个步骤的断言结果。",
             serde_json::json!({
                 "type": "object",
                 "properties": {
@@ -193,7 +193,7 @@ impl ToolRegistry {
 
         self.register(
             "list_collections",
-            "列出所有 API 集合及其包含的请求数量",
+            "列出所有 API 集合及其包含的请求数量。当用户要求「查看集合」「列出 API」「浏览接口」时使用此工具。返回每个集合的名称和其中已保存的请求总数。",
             serde_json::json!({
                 "type": "object",
                 "properties": {}
@@ -203,7 +203,7 @@ impl ToolRegistry {
 
         self.register(
             "get_collection_tree",
-            "以树形结构展示所有集合及其请求的方法和 URL",
+            "以树形结构展示所有集合及其请求的 HTTP 方法和 URL。当用户要求「看集合树」「浏览 API 结构」「整理接口」时使用此工具。结果比 list_collections 更详细，包含每个请求的配置。",
             serde_json::json!({
                 "type": "object",
                 "properties": {}
@@ -213,7 +213,7 @@ impl ToolRegistry {
 
         self.register(
             "get_collection_request",
-            "从指定集合中按名称查找并返回某条请求的详细配置",
+            "从指定集合中按名称查找并返回某条请求的详细配置（URL、方法、头、体等）。当用户要求「查看某个接口的配置」「获取某个请求详情」时使用此工具。先用 list_collections 确定集合和请求名称。",
             serde_json::json!({
                 "type": "object",
                 "properties": {
@@ -227,7 +227,7 @@ impl ToolRegistry {
 
         self.register(
             "list_environments",
-            "列出所有环境及其变量数量和激活状态",
+            "列出所有环境及其变量数量和激活状态。当用户要求「查看环境」「列出环境变量」「有哪些环境」时使用此工具。可与 activate_environment 配合切换当前使用哪个环境。",
             serde_json::json!({
                 "type": "object",
                 "properties": {}
@@ -237,7 +237,7 @@ impl ToolRegistry {
 
         self.register(
             "activate_environment",
-            "按名称激活指定的环境，后续请求将使用该环境的变量进行 {{key}} 替换",
+            "按名称激活指定的环境。当用户要求「切换环境」「激活XX环境」「使用XX环境的变量」时使用此工具。激活后，后续请求将使用该环境的变量进行 {{key}} 模板替换。用 list_environments 可查看所有可用环境和当前激活状态。",
             serde_json::json!({
                 "type": "object",
                 "properties": {
@@ -250,7 +250,7 @@ impl ToolRegistry {
 
         self.register(
             "create_test_script",
-            "创建 YAML 格式的测试脚本文件，支持指定名称、描述、变量和请求列表，自动生成合法的 YAML 并保存到指定路径",
+            "创建/生成/编写 YAML 格式的 HTTP API 测试脚本文件。当用户要求「创建测试脚本」「生成测试用例」「写一个测试」时使用此工具。支持指定名称、描述、变量和请求列表，自动生成合法的 YAML 并保存到指定路径。配合 run_test_file 可立即运行生成的脚本。",
             serde_json::json!({
                 "type": "object",
                 "properties": {

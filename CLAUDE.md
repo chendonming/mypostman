@@ -96,6 +96,7 @@ Convenience component classes in `src/index.css`: `.panel`, `.btn-primary`, `.bt
 
 ### MCP 工具（推荐）
 项目提供 pulse-mcp MCP 服务器：
+- `create_test_script` — 从结构化参数创建 YAML 测试脚本并保存到指定路径
 - `send_request` — 发送 HTTP 请求（支持环境变量、Bearer Token）
 - `run_test_script` / `run_test_file` — 运行 YAML 测试脚本
 - `list_collections` / `get_collection_tree` — 浏览集合
@@ -123,7 +124,8 @@ npm run mcp:run            # 运行 MCP 服务器
 ```
 
 ### 典型工作流
-1. `list_collections` 查看可用 API
-2. `activate_environment` 选择环境
-3. `send_request` 发起测试
-4. `run_test_file` 运行完整的断言测试
+1. `create_test_script` 为新 API 创建测试脚本
+2. `list_collections` 查看可用 API
+3. `activate_environment` 选择环境
+4. `send_request` 发起测试
+5. `run_test_file` 运行完整的断言测试
