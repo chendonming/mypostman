@@ -54,6 +54,55 @@ pub struct EnvironmentData {
     pub active_id: Option<String>,
 }
 
+/** 集合中的单个请求定义（合并 TestRequest 和 RequestItem 的全部字段） */
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CollectionItem {
+    pub id: String,
+    pub name: String,
+    pub method: String,
+    pub url: String,
+    pub headers: Vec<HeaderInput>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub body: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_type: Option<String>,
+    /** 认证方式：none / bearer / inherit */
+    pub auth_type: String,
+    pub bearer_token: String,
+    #[serde(default)]
+    pub params: Vec<HeaderInput>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub body_params: Option<Vec<HeaderInput>>,
+    /** 断言表达式列表，例如 "status == 200" 或 "body.success == true" */
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub assertions: Vec<String>,
+    /** 设为 true 可临时跳过此请求 */
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skip: Option<bool>,
+}
+
+/** 请求集合：一组相关请求的容器 */
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Collection {
+    pub id: String,
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    pub base_url: String,
+    pub auth_type: String,
+    pub bearer_token: String,
+    /** 集合级默认变量，用于 {{key}} 模板替换 */
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub variables: Option<std::collections::HashMap<String, String>>,
+    pub requests: Vec<CollectionItem>,
+}
+
+/** 集合数据容器：全部集合列表 */
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CollectionData {
+    pub collections: Vec<Collection>,
+}
+
 /** 前端传入的请求参数（由 invoke("send_request") 携带） */
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RequestInput {
@@ -289,15 +338,21 @@ pub fn resolve_data_dir() -> Result<std::path::PathBuf, String> {
     Ok(base.join("com.pulse.app"))
 }
 
-/** 从数据目录加载 collections.json（文件不存在时返回空集合） */
-pub fn load_collections_data(data_dir: &std::path::Path) -> serde_json::Value {
+/** 从数据目录加载 collections.json（文件不存在时返回空集合数据） */
+pub fn load_collections_data(data_dir: &std::path::Path) -> CollectionData {
     let file_path = data_dir.join("collections.json");
     if !file_path.exists() {
-        return serde_json::Value::Null;
+        return CollectionData {
+            collections: Vec::new(),
+        };
     }
     match std::fs::read_to_string(&file_path) {
-        Ok(content) => serde_json::from_str(&content).unwrap_or(serde_json::Value::Null),
-        Err(_) => serde_json::Value::Null,
+        Ok(content) => serde_json::from_str(&content).unwrap_or(CollectionData {
+            collections: Vec::new(),
+        }),
+        Err(_) => CollectionData {
+            collections: Vec::new(),
+        },
     }
 }
 
@@ -327,7 +382,7 @@ pub fn load_environments_data(data_dir: &std::path::Path) -> EnvironmentData {
 /** 将集合数据持久化到 collections.json */
 pub fn save_collections_data(
     data_dir: &std::path::Path,
-    data: &serde_json::Value,
+    data: &CollectionData,
 ) -> Result<(), String> {
     std::fs::create_dir_all(data_dir)
         .map_err(|e| format!("无法创建数据目录: {}", e))?;

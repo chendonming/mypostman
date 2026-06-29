@@ -17,8 +17,8 @@ use tauri_plugin_dialog::DialogExt;
 // ===== 共享核心库（类型 + 纯函数） =====
 // 通过 re-export 保持向后兼容：crate::HeaderInput 等路径仍然有效
 pub use pulse_core::{
-    Environment, EnvironmentData, EnvironmentVariable, HeaderInput,
-    RequestInput, ResponseData, TimingInfo,
+    Collection, CollectionData, CollectionItem, Environment, EnvironmentData,
+    EnvironmentVariable, HeaderInput, RequestInput, ResponseData, TimingInfo,
     chrono_now_iso, execute_http_request, load_collections_data,
     load_environments_data, resolve_data_dir, save_collections_data,
     save_environments_data, substitute_variables,
@@ -250,7 +250,7 @@ fn save_environments(app: AppHandle, data: EnvironmentData) -> Result<(), String
 
 /** 从操作系统应用数据目录加载 collections.json */
 #[tauri::command]
-fn load_collections(app: AppHandle) -> Result<serde_json::Value, String> {
+fn load_collections(app: AppHandle) -> Result<CollectionData, String> {
     let data_dir = app
         .path()
         .app_data_dir()
@@ -260,7 +260,7 @@ fn load_collections(app: AppHandle) -> Result<serde_json::Value, String> {
 
 /** 将集合数据持久化到 collections.json */
 #[tauri::command]
-fn save_collections(app: AppHandle, data: serde_json::Value) -> Result<(), String> {
+fn save_collections(app: AppHandle, data: CollectionData) -> Result<(), String> {
     let data_dir = app
         .path()
         .app_data_dir()
@@ -398,22 +398,11 @@ async fn export_data_to_file(app: AppHandle, format: String, collection_ids: Vec
         collections
     } else {
         // 仅保留 ID 在 collection_ids 中的集合
-        let items = collections
-            .get("collections")
-            .and_then(|v| v.as_array())
-            .map(|arr| {
-                arr.iter()
-                    .filter(|item| {
-                        item.get("id")
-                            .and_then(|id| id.as_str())
-                            .map(|id| collection_ids.contains(&id.to_string()))
-                            .unwrap_or(false)
-                    })
-                    .cloned()
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
-        serde_json::json!({ "collections": items })
+        let items: Vec<pulse_core::Collection> = collections.collections
+            .into_iter()
+            .filter(|c| collection_ids.contains(&c.id))
+            .collect();
+        pulse_core::CollectionData { collections: items }
     };
 
     // 读取环境数据
@@ -459,10 +448,70 @@ async fn export_data_to_file(app: AppHandle, format: String, collection_ids: Vec
 }
 
 /**
+ * export_collection_as_document：将单个集合导出为 CollectionDocument 格式
+ *
+ * 返回序列化后的 YAML/JSON 字符串，供前端保存。
+ */
+#[tauri::command]
+fn export_collection_as_document(
+    app: AppHandle,
+    collection_id: String,
+    format: String,
+) -> Result<Option<String>, String> {
+    let export_fmt = io::ExportFormat::from_str(&format)?;
+
+    let data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to get app data dir: {}", e))?;
+
+    let collections = load_collections_data(&data_dir);
+
+    // 按 ID 查找集合
+    let collection = collections.collections.iter()
+        .find(|c| c.id == collection_id)
+        .ok_or_else(|| format!("未找到 ID 为 '{}' 的集合", collection_id))?;
+
+    // 导出为 CollectionDocument 格式
+    let content = io::export_collection_as_document(collection, export_fmt)?;
+
+    // 弹出原生保存对话框
+    let default_filename = format!("{}.{}",
+        collection.name.replace(' ', "-").to_lowercase(),
+        export_fmt.to_extension()
+    );
+
+    let file_path = app
+        .dialog()
+        .file()
+        .add_filter(export_fmt.file_filter_label(), &[export_fmt.to_extension()])
+        .set_file_name(&default_filename)
+        .blocking_save_file();
+
+    let Some(path) = file_path else {
+        return Ok(None); // 用户取消
+    };
+
+    // 写入文件
+    let path_str = path.to_string();
+    std::fs::write(&path_str, &content)
+        .map_err(|e| format!("Failed to write file: {}", e))?;
+
+    let file_name = std::path::Path::new(&path_str)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or(&path_str)
+        .to_string();
+
+    Ok(Some(file_name))
+}
+
+/**
  * preview_import：预览导入文件内容（不写入）
  *
- * 解析并验证文件内容，返回集合和环境数量的摘要信息，
- * 供前端对话框显示确认。
+ * 自动检测文件格式：
+ * 1. 先尝试解析为 ExportData（标准备份格式）
+ * 2. 如果失败，尝试解析为 CollectionDocument（单个集合格式）
  */
 #[tauri::command]
 fn preview_import(path: String) -> Result<io::ImportPreview, String> {
@@ -470,17 +519,29 @@ fn preview_import(path: String) -> Result<io::ImportPreview, String> {
         std::fs::read_to_string(&path).map_err(|e| format!("Failed to read file: {}", e))?;
 
     let fmt = io::ExportFormat::from_extension(&path)?;
-    let preview = io::preview_from_content(&content, fmt)?;
-    Ok(preview)
+
+    // 尝试 ExportData 格式
+    if let Ok(preview) = io::preview_from_content(&content, fmt) {
+        return Ok(preview);
+    }
+
+    // 尝试 CollectionDocument 格式
+    if let Ok(_doc) = io::deserialize_collection_document(&content, fmt) {
+        return Ok(io::ImportPreview {
+            collections_count: 1,
+            environments_count: 0,
+        });
+    }
+
+    Err("无法识别的文件格式：不是有效的 Pulse 导出文件或 Collection 文件".to_string())
 }
 
 /**
  * import_data_from_file：从文件导入数据
  *
- * 1. 读取并解析文件（JSON/YAML 自动检测）
- * 2. 验证导入数据结构
- * 3. 按策略合并/替换现有数据
- * 4. 写入 app_data_dir
+ * 自动检测文件格式：
+ * 1. ExportData（标准备份格式）：导入集合和环境
+ * 2. CollectionDocument（单个集合格式）：创建新集合
  *
  * strategy: "replace" 或 "merge"
  */
@@ -494,8 +555,6 @@ fn import_data_from_file(
         std::fs::read_to_string(&path).map_err(|e| format!("Failed to read file: {}", e))?;
 
     let fmt = io::ExportFormat::from_extension(&path)?;
-    let import_data = io::deserialize_import(&content, fmt)?;
-    io::validate_import(&import_data)?;
 
     let data_dir = app
         .path()
@@ -504,36 +563,65 @@ fn import_data_from_file(
     std::fs::create_dir_all(&data_dir)
         .map_err(|e| format!("Failed to create data dir: {}", e))?;
 
-    // 读取现有数据
-    let existing_collections = load_collections_data(&data_dir);
-    let existing_environments = load_environments_data(&data_dir);
+    // 尝试 ExportData 格式
+    if let Ok(import_data) = io::deserialize_import(&content, fmt) {
+        io::validate_import(&import_data)?;
 
-    // 按策略合并
-    let (final_collections, final_environments) = match strategy.as_str() {
-        "replace" => (import_data.collections, import_data.environments),
-        "merge" => (
-            io::merge_collections(&existing_collections, &import_data.collections),
-            io::merge_environments(&existing_environments, &import_data.environments),
-        ),
-        _ => return Err(format!("Unknown strategy: '{}'. Expected 'replace' or 'merge'", strategy)),
-    };
+        // 读取现有数据
+        let existing_collections = load_collections_data(&data_dir);
+        let existing_environments = load_environments_data(&data_dir);
 
-    // 写入文件
-    save_collections_data(&data_dir, &final_collections)?;
-    save_environments_data(&data_dir, &final_environments)?;
+        // 按策略合并
+        let (final_collections, final_environments) = match strategy.as_str() {
+            "replace" => (import_data.collections, import_data.environments),
+            "merge" => (
+                io::merge_collections(&existing_collections, &import_data.collections),
+                io::merge_environments(&existing_environments, &import_data.environments),
+            ),
+            _ => return Err(format!("Unknown strategy: '{}'. Expected 'replace' or 'merge'", strategy)),
+        };
 
-    let collections_count = final_collections["collections"]
-        .as_array()
-        .map(|a| a.len())
-        .unwrap_or(0);
-    let environments_count = final_environments.environments.len();
-    let active_id_changed = final_environments.active_id.is_some();
+        // 写入文件
+        save_collections_data(&data_dir, &final_collections)?;
+        save_environments_data(&data_dir, &final_environments)?;
 
-    Ok(io::ImportResult {
-        collections_count,
-        environments_count,
-        active_id_changed,
-    })
+        let collections_count = final_collections.collections.len();
+        let environments_count = final_environments.environments.len();
+        let active_id_changed = final_environments.active_id.is_some();
+
+        return Ok(io::ImportResult {
+            collections_count,
+            environments_count,
+            active_id_changed,
+        });
+    }
+
+    // 尝试 CollectionDocument 格式
+    if let Ok(doc) = io::deserialize_collection_document(&content, fmt) {
+        let new_collection = io::collection_document_to_collection(doc);
+
+        // 读取现有数据
+        let existing_collections = load_collections_data(&data_dir);
+        let existing_environments = load_environments_data(&data_dir);
+
+        // 合并新集合
+        let mut all_collections = existing_collections.collections;
+        all_collections.push(new_collection);
+        let final_collections = pulse_core::CollectionData {
+            collections: all_collections,
+        };
+
+        // 写入集合文件
+        save_collections_data(&data_dir, &final_collections)?;
+
+        return Ok(io::ImportResult {
+            collections_count: 1,
+            environments_count: existing_environments.environments.len(),
+            active_id_changed: false,
+        });
+    }
+
+    Err("无法识别的文件格式：不是有效的 Pulse 导出文件或 Collection 文件".to_string())
 }
 
 /**
@@ -590,6 +678,38 @@ async fn run_test_script(
 }
 
 /**
+ * run_collection_test：运行集合中所有请求的测试
+ *
+ * 从已持久化的 Collection 中加载请求和断言，
+ * 使用指定环境的变量进行 {{key}} 替换，逐个执行。
+ */
+#[tauri::command]
+async fn run_collection_test(
+    app: AppHandle,
+    collection_id: String,
+    variables: Vec<EnvironmentVariable>,
+) -> Result<test_runner::TestRunResult, String> {
+    let data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to get app data dir: {}", e))?;
+
+    let collections = load_collections_data(&data_dir);
+
+    let collection = collections.collections.iter()
+        .find(|c| c.id == collection_id)
+        .ok_or_else(|| format!("未找到 ID 为 '{}' 的集合", collection_id))?;
+
+    Ok(test_runner::run_test_on_requests(
+        &collection.name,
+        collection.description.as_deref(),
+        &collection.variables,
+        &collection.requests,
+        &variables,
+    ).await)
+}
+
+/**
  * 应用入口
  *
  * 1. 初始化 LogStore（Mutex 包裹的 Vec，线程共享）
@@ -618,11 +738,13 @@ pub fn run() {
             load_settings,
             save_settings,
             export_data_to_file,
+            export_collection_as_document,
             preview_import,
             import_data_from_file,
             pick_import_file,
             pick_test_script_file,
             run_test_script,
+            run_collection_test,
         ])
         .setup(|app| {
             // 创建独立的日志查看窗口（标签为 "logs"）

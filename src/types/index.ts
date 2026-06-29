@@ -37,12 +37,16 @@ export interface ResponseData {
 export interface Collection {
   id: string;
   name: string;
+  /** 集合描述（可选） */
+  description?: string;
   requests: RequestItem[];
   /** 集合级默认认证方式（子请求可继承） */
   authType: AuthType;
   bearerToken: string;
   /** Base URL：编辑集合中的请求时，相对路径会自动拼接此前缀 */
   base_url: string;
+  /** 集合级默认变量，用于 {{key}} 模板替换 */
+  variables?: Record<string, string>;
 }
 
 /** 集合中的单个请求定义 */
@@ -61,6 +65,10 @@ export interface RequestItem {
   params: HeaderInput[];
   /** 请求体键值对（用于 application/x-www-form-urlencoded），可选向后兼容 */
   bodyParams?: HeaderInput[];
+  /** 断言表达式列表，例如 "status == 200" 或 "body.success == true" */
+  assertions?: string[];
+  /** 设为 true 可临时跳过此请求 */
+  skip?: boolean;
 }
 
 /** 历史记录摘要（侧边栏列表用，不含完整请求详情） */

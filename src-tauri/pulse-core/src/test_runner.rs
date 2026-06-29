@@ -10,7 +10,7 @@ use std::collections::HashMap;
 
 use crate::{
     chrono_now_iso, execute_http_request, substitute_variables,
-    EnvironmentVariable, HeaderInput, RequestInput, ResponseData,
+    CollectionItem, EnvironmentVariable, HeaderInput, RequestInput, ResponseData,
 };
 
 // ============================================================
@@ -142,8 +142,8 @@ pub async fn run_test_script_internal(
 ) -> TestRunResult {
     let started_at = chrono_now_iso();
 
-    // 步骤 1: 解析 YAML
-    let script = match parse_test_script(yaml_content) {
+    // 步骤 1: 解析 YAML（先尝试 CollectionDocument 新格式，再回退 TestScript）
+    let script = match crate::io::parse_yaml_as_test_script(yaml_content) {
         Ok(s) => s,
         Err(e) => {
             return TestRunResult {
@@ -791,4 +791,181 @@ fn compare_contains(actual: &ResolvedValue, expected: &ResolvedValue) -> bool {
     };
 
     haystack.contains(&needle)
+}
+
+// ============================================================
+// Collection 级别测试执行
+// ============================================================
+
+/**
+ * 从 Collection 结构体直接执行测试（不依赖 YAML 解析）
+ *
+ * 变量合并规则：激活环境变量优先于集合级默认变量
+ * （与 TestScript 相反，因为集合的 variables 是默认值而非覆盖值）
+ *
+ * 返回 TestRunResult（与 run_test_script_internal 返回类型一致）
+ */
+pub async fn run_test_on_requests(
+    name: &str,
+    _description: Option<&str>,
+    collection_variables: &Option<std::collections::HashMap<String, String>>,
+    requests: &[CollectionItem],
+    active_variables: &[EnvironmentVariable],
+) -> TestRunResult {
+    let started_at = chrono_now_iso();
+    let total_steps = requests.len();
+
+    // 合并变量：环境变量优先，集合变量作为默认值
+    let merged = merge_collection_variables(active_variables, collection_variables);
+
+    let mut steps = Vec::with_capacity(total_steps);
+    for request in requests {
+        let step = execute_request_item(request, &merged).await;
+        steps.push(step);
+    }
+
+    let passed_steps = steps.iter().filter(|s| s.passed).count();
+    let failed_steps = steps.iter().filter(|s| !s.passed).count();
+
+    TestRunResult {
+        script_name: name.to_string(),
+        started_at,
+        completed_at: chrono_now_iso(),
+        total_steps,
+        passed_steps,
+        failed_steps,
+        steps,
+        error: None,
+    }
+}
+
+/**
+ * 合并环境变量与集合变量
+ * 环境变量优先级更高（与 merge_variables 相反）
+ */
+fn merge_collection_variables(
+    active: &[EnvironmentVariable],
+    collection_vars: &Option<std::collections::HashMap<String, String>>,
+) -> Vec<EnvironmentVariable> {
+    let mut combined: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+
+    // 先加入集合级默认变量
+    if let Some(vars) = collection_vars {
+        for (k, v) in vars {
+            combined.insert(k.clone(), v.clone());
+        }
+    }
+
+    // 环境变量覆盖（优先级更高）
+    for v in active {
+        if v.enabled {
+            combined.insert(v.key.clone(), v.value.clone());
+        }
+    }
+
+    combined
+        .into_iter()
+        .map(|(key, value)| EnvironmentVariable {
+            key,
+            value,
+            enabled: true,
+        })
+        .collect()
+}
+
+/**
+ * 执行单个 CollectionItem 请求并验证断言
+ *
+ * 与 execute_single_request 逻辑相同，但使用 CollectionItem 字段
+ */
+async fn execute_request_item(
+    req_item: &CollectionItem,
+    variables: &[EnvironmentVariable],
+) -> TestStepResult {
+    // 检查是否跳过
+    if req_item.skip.unwrap_or(false) {
+        return TestStepResult {
+            name: req_item.name.clone(),
+            passed: true,
+            status: 0,
+            status_text: "Skipped".into(),
+            duration_ms: 0.0,
+            size_label: "0 B".into(),
+            url: req_item.url.clone(),
+            method: req_item.method.clone(),
+            assertion_results: vec![],
+            error: None,
+        };
+    }
+
+    // 对 URL 和请求体执行变量替换
+    let url = substitute_variables(&req_item.url, variables);
+    let body = req_item
+        .body
+        .as_ref()
+        .map(|b| substitute_variables(b, variables));
+    let content_type = req_item
+        .content_type
+        .as_ref()
+        .map(|ct| substitute_variables(ct, variables));
+
+    // 构建请求头列表（Vec<HeaderInput> + 变量替换）
+    let headers: Vec<HeaderInput> = req_item
+        .headers
+        .iter()
+        .filter(|h| h.enabled)
+        .map(|h| HeaderInput {
+            key: h.key.clone(),
+            value: substitute_variables(&h.value, variables),
+            enabled: true,
+        })
+        .collect();
+
+    let method = req_item.method.to_uppercase();
+
+    // 构建 RequestInput 并执行
+    let input = RequestInput {
+        method: method.clone(),
+        url: url.clone(),
+        headers,
+        body,
+        content_type,
+    };
+
+    let exec_start = std::time::Instant::now();
+    let result = execute_http_request(input).await;
+    let duration_ms = exec_start.elapsed().as_secs_f64() * 1000.0;
+
+    match result {
+        Ok(response) => {
+            // 评估断言
+            let assertion_results = evaluate_assertions(&req_item.assertions, &response, duration_ms);
+            let all_passed = assertion_results.iter().all(|a| a.passed);
+
+            TestStepResult {
+                name: req_item.name.clone(),
+                passed: all_passed,
+                status: response.status,
+                status_text: response.status_text,
+                duration_ms,
+                size_label: response.size_label,
+                url,
+                method,
+                assertion_results,
+                error: None,
+            }
+        }
+        Err(err) => TestStepResult {
+            name: req_item.name.clone(),
+            passed: false,
+            status: 0,
+            status_text: "Error".into(),
+            duration_ms,
+            size_label: "0 B".into(),
+            url,
+            method,
+            assertion_results: vec![],
+            error: Some(err),
+        },
+    }
 }

@@ -14,9 +14,9 @@
 #![allow(non_snake_case, dead_code)]
 
 use pulse_core::{
-    analyze_response, execute_http_request, load_collections_data, load_environments_data,
-    resolve_data_dir, save_environments_data, test_runner::test_script_to_yaml,
-    EnvironmentVariable, HeaderInput, RequestInput,
+    analyze_response, execute_http_request, io, load_collections_data, load_environments_data,
+    resolve_data_dir, save_environments_data,
+    CollectionData, EnvironmentVariable, HeaderInput, RequestInput,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -250,16 +250,29 @@ impl ToolRegistry {
 
         self.register(
             "create_test_script",
-            "创建/生成/编写 YAML 格式的 HTTP API 测试脚本文件。当用户要求「创建测试脚本」「生成测试用例」「写一个测试」时使用此工具。支持指定名称、描述、变量和请求列表，自动生成合法的 YAML 并保存到指定路径。配合 run_test_file 可立即运行生成的脚本。",
+            "创建/生成/编写 YAML 格式的 HTTP API 测试脚本/集合文件。当用户要求「创建测试脚本」「生成测试用例」「写一个测试」「创建一个集合文件」时使用此工具。生成的 YAML 支持 base_url、auth、集合级变量，可用 run_test_file 运行测试，也可通过 Pulse 的导入功能导入为持久化集合。",
             serde_json::json!({
                 "type": "object",
                 "properties": {
                     "path": { "type": "string", "description": "测试脚本文件保存路径（必填）" },
-                    "name": { "type": "string", "description": "测试脚本名称（必填）" },
-                    "description": { "type": "string", "description": "测试脚本描述（可选）" },
+                    "name": { "type": "string", "description": "集合/脚本名称（必填）" },
+                    "description": { "type": "string", "description": "集合/脚本描述（可选）" },
+                    "base_url": { "type": "string", "description": "集合级 Base URL（可选），请求可使用相对路径" },
+                    "auth": {
+                        "type": "object",
+                        "description": "集合级默认认证（可选），请求可继承",
+                        "properties": {
+                            "type": {
+                                "type": "string",
+                                "enum": ["none", "bearer"],
+                                "description": "认证方式"
+                            },
+                            "bearer_token": { "type": "string", "description": "Bearer Token" }
+                        }
+                    },
                     "variables": {
                         "type": "object",
-                        "description": "脚本级变量键值对（可选），如 {\"base_url\": \"http://localhost:8080\"}",
+                        "description": "集合级默认变量键值对（可选），如 {\"base_url\": \"http://localhost:8080\"}，优先级低于激活环境",
                         "additionalProperties": { "type": "string" }
                     },
                     "requests": {
@@ -274,7 +287,7 @@ impl ToolRegistry {
                                     "enum": ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"],
                                     "description": "HTTP 方法（必填）"
                                 },
-                                "url": { "type": "string", "description": "请求 URL，支持 {{variable}} 插值（必填）" },
+                                "url": { "type": "string", "description": "请求 URL，支持 {{variable}} 插值（必填），可使用相对路径配合 base_url" },
                                 "headers": {
                                     "type": "object",
                                     "description": "请求头键值对（可选）",
@@ -282,6 +295,18 @@ impl ToolRegistry {
                                 },
                                 "body": { "type": "string", "description": "请求体字符串（可选）" },
                                 "content_type": { "type": "string", "description": "Content-Type（可选）" },
+                                "auth": {
+                                    "type": "object",
+                                    "description": "请求级认证配置（可选），默认继承集合级",
+                                    "properties": {
+                                        "type": {
+                                            "type": "string",
+                                            "enum": ["none", "bearer", "inherit"],
+                                            "description": "认证方式"
+                                        },
+                                        "bearer_token": { "type": "string", "description": "Bearer Token" }
+                                    }
+                                },
                                 "assertions": {
                                     "type": "array",
                                     "items": { "type": "string" },
@@ -518,25 +543,22 @@ fn handle_get_collection_request(args: &HashMap<String, serde_json::Value>) -> M
         Err(e) => return error_result(&e),
     };
     let collections = load_collections_data(&data_dir);
-    let items = match collections.get("collections").and_then(|v| v.as_array()) {
-        Some(arr) => arr,
-        None => return error_result("集合数据为空"),
-    };
+    if collections.collections.is_empty() {
+        return error_result("集合数据为空");
+    }
 
-    let collection = match items.iter().find(|c| c.get("name").and_then(|n| n.as_str()) == Some(&collection_name)) {
+    let collection = match collections.collections.iter().find(|c| c.name == collection_name) {
         Some(c) => c,
         None => return error_result(&format!("未找到名为 '{}' 的集合", collection_name)),
     };
 
-    let requests = match collection.get("requests").and_then(|r| r.as_array()) {
-        Some(arr) => arr,
-        None => return error_result(&format!("集合 '{}' 中没有请求", collection_name)),
+    let request = match collection.requests.iter().find(|r| r.name == request_name) {
+        Some(r) => r,
+        None => return error_result(&format!("在集合 '{}' 中未找到请求 '{}'", collection_name, request_name)),
     };
 
-    match requests.iter().find(|r| r.get("name").and_then(|n| n.as_str()) == Some(&request_name)) {
-        Some(req) => text_result(&serde_json::to_string_pretty(req).unwrap_or_default()),
-        None => error_result(&format!("在集合 '{}' 中未找到请求 '{}'", collection_name, request_name)),
-    }
+    // 将 CollectionItem 序列化为 JSON 返回
+    text_result(&serde_json::to_string_pretty(request).unwrap_or_default())
 }
 
 /** 处理 list_environments 工具 */
@@ -593,12 +615,20 @@ fn handle_create_test_script(args: &HashMap<String, serde_json::Value>) -> McpTo
         None => return error_result("缺少必填参数: name"),
     };
     let description = get_str(args, "description");
+    let base_url = get_str(args, "base_url");
 
-    // 解析脚本级变量
+    // 解析集合级变量
     let variables = args.get("variables").and_then(|v| v.as_object()).map(|obj| {
         obj.iter().map(|(k, v)| {
             (k.clone(), v.as_str().unwrap_or("").to_string())
         }).collect()
+    });
+
+    // 解析集合级认证
+    let auth = args.get("auth").and_then(|v| v.as_object()).map(|obj| {
+        let auth_type = obj.get("type").and_then(|t| t.as_str()).unwrap_or("none").to_string();
+        let bearer_token = obj.get("bearer_token").and_then(|t| t.as_str()).map(|s| s.to_string());
+        io::AuthConfig { auth_type, bearer_token }
     });
 
     // 解析请求列表
@@ -628,18 +658,27 @@ fn handle_create_test_script(args: &HashMap<String, serde_json::Value>) -> McpTo
                 });
                 let body = obj.get("body").and_then(|v| v.as_str()).map(|s| s.to_string());
                 let content_type = obj.get("content_type").and_then(|v| v.as_str()).map(|s| s.to_string());
+
+                // 解析请求级认证
+                let req_auth = obj.get("auth").and_then(|v| v.as_object()).map(|a| {
+                    let auth_type = a.get("type").and_then(|t| t.as_str()).unwrap_or("inherit").to_string();
+                    let bearer_token = a.get("bearer_token").and_then(|t| t.as_str()).map(|s| s.to_string());
+                    io::AuthConfig { auth_type, bearer_token }
+                });
+
                 let assertions = obj.get("assertions").and_then(|v| v.as_array())
                     .map(|a| a.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
                     .unwrap_or_default();
                 let skip = obj.get("skip").and_then(|v| v.as_bool());
 
-                result.push(pulse_core::test_runner::TestRequest {
+                result.push(io::CollectionDocumentItem {
                     name: r_name,
                     method,
                     url,
                     headers,
                     body,
                     content_type,
+                    auth: req_auth,
                     assertions,
                     skip,
                 });
@@ -649,15 +688,17 @@ fn handle_create_test_script(args: &HashMap<String, serde_json::Value>) -> McpTo
         None => return error_result("缺少必填参数: requests"),
     };
 
-    let script = pulse_core::test_runner::TestScript {
+    let doc = io::CollectionDocument {
         name,
         description,
+        base_url,
         variables,
+        auth,
         requests,
     };
 
     // 序列化为 YAML
-    let yaml = match test_script_to_yaml(&script) {
+    let yaml = match io::serialize_collection_document(&doc, io::ExportFormat::Yaml) {
         Ok(y) => y,
         Err(e) => return error_result(&e),
     };
@@ -670,8 +711,8 @@ fn handle_create_test_script(args: &HashMap<String, serde_json::Value>) -> McpTo
     // 写入文件（静默覆盖已有文件）
     match std::fs::write(&path, &yaml) {
         Ok(_) => text_result(&format!(
-            "测试脚本已成功创建\n路径: {}\n名称: {}\n请求数: {}",
-            path, script.name, script.requests.len()
+            "Collection 文件已成功创建\n路径: {}\n名称: {}\n请求数: {}\n提示：可使用 `run_test_file` 运行测试，或通过 Pulse GUI 的导入功能将其导入为持久化集合。",
+            path, doc.name, doc.requests.len()
         )),
         Err(e) => error_result(&format!("写入文件失败 '{}': {}", path, e)),
     }
@@ -704,65 +745,30 @@ fn error_result(error: &str) -> McpToolResult {
 }
 
 /** 提取集合摘要（名称 + 请求数量） */
-fn extract_collections_summary(collections: &serde_json::Value) -> Vec<serde_json::Value> {
-    collections
-        .get("collections")
-        .and_then(|v| v.as_array())
-        .map(|arr| {
-            arr.iter()
-                .map(|c| {
-                    let name = c.get("name").and_then(|n| n.as_str()).unwrap_or("(未命名)");
-                    let count = c
-                        .get("requests")
-                        .and_then(|r| r.as_array())
-                        .map(|a| a.len())
-                        .unwrap_or(0);
-                    serde_json::json!({
-                        "name": name,
-                        "request_count": count,
-                    })
-                })
-                .collect()
+fn extract_collections_summary(collections: &CollectionData) -> Vec<serde_json::Value> {
+    collections.collections.iter().map(|c| {
+        serde_json::json!({
+            "name": c.name,
+            "request_count": c.requests.len(),
         })
-        .unwrap_or_default()
+    }).collect()
 }
 
 /** 构建集合树结构 */
-fn build_collection_tree(collections: &serde_json::Value) -> serde_json::Value {
-    let items: Vec<serde_json::Value> = collections
-        .get("collections")
-        .and_then(|v| v.as_array())
-        .map(|arr| {
-            arr.iter()
-                .map(|c| {
-                    let name = c.get("name").and_then(|n| n.as_str()).unwrap_or("(未命名)");
-                    let requests: Vec<serde_json::Value> = c
-                        .get("requests")
-                        .and_then(|r| r.as_array())
-                        .map(|reqs| {
-                            reqs
-                                .iter()
-                                .map(|r| {
-                                    let rname = r.get("name").and_then(|n| n.as_str()).unwrap_or("(未命名)");
-                                    let method = r.get("method").and_then(|m| m.as_str()).unwrap_or("GET");
-                                    let url = r.get("url").and_then(|u| u.as_str()).unwrap_or("");
-                                    serde_json::json!({
-                                        "name": rname,
-                                        "method": method,
-                                        "url": url,
-                                    })
-                                })
-                                .collect()
-                        })
-                        .unwrap_or_default();
-                    serde_json::json!({
-                        "name": name,
-                        "requests": requests,
-                    })
-                })
-                .collect()
+fn build_collection_tree(collections: &CollectionData) -> serde_json::Value {
+    let items: Vec<serde_json::Value> = collections.collections.iter().map(|c| {
+        let requests: Vec<serde_json::Value> = c.requests.iter().map(|r| {
+            serde_json::json!({
+                "name": r.name,
+                "method": r.method,
+                "url": r.url,
+            })
+        }).collect();
+        serde_json::json!({
+            "name": c.name,
+            "requests": requests,
         })
-        .unwrap_or_default();
+    }).collect();
 
     serde_json::json!({ "collections": items })
 }

@@ -13,7 +13,7 @@ use std::path::PathBuf;
 use crate::{
     analyze_response, execute_http_request, load_collections_data, load_environments_data,
     resolve_data_dir, save_collections_data, save_environments_data,
-    substitute_variables, EnvironmentData, EnvironmentVariable, HeaderInput, RequestInput, ResponseData,
+    substitute_variables, Collection, CollectionData, EnvironmentData, EnvironmentVariable, HeaderInput, RequestInput, ResponseData,
 };
 use crate::io::{self, ExportFormat};
 use crate::test_runner;
@@ -465,88 +465,35 @@ fn handle_request_from_collection(
 
     // 1. 加载集合数据
     let collections = load_collections_data(data_dir);
-    let items = collections
-        .get("collections")
-        .and_then(|v| v.as_array())
-        .ok_or_else(|| format!("集合数据为空或格式不正确"))?;
+    if collections.collections.is_empty() {
+        return Err("集合数据为空或格式不正确".into());
+    }
 
     // 2. 按集合名称查找
-    let collection = items
-        .iter()
-        .find(|c| {
-            c.get("name")
-                .and_then(|n| n.as_str())
-                .map(|n| n == args.collection_name)
-                .unwrap_or(false)
-        })
+    let collection = collections.collections.iter()
+        .find(|c| c.name == args.collection_name)
         .ok_or_else(|| format!("未找到名为 '{}' 的集合", args.collection_name))?;
 
     // 3. 在集合中按请求名称查找
-    let requests = collection
-        .get("requests")
-        .and_then(|r| r.as_array())
-        .ok_or_else(|| format!("集合 '{}' 中没有请求", args.collection_name))?;
+    let request = collection.requests.iter()
+        .find(|r| r.name == args.request_name)
+        .ok_or_else(|| format!("在集合 '{}' 中未找到名为 '{}' 的请求", args.collection_name, args.request_name))?;
 
-    let request_data = requests
-        .iter()
-        .find(|r| {
-            r.get("name")
-                .and_then(|n| n.as_str())
-                .map(|n| n == args.request_name)
-                .unwrap_or(false)
+    // 4. 从 CollectionItem 构建 RequestInput
+    let method = request.method.to_uppercase();
+    let url = request.url.clone();
+
+    let headers: Vec<HeaderInput> = request.headers.iter()
+        .filter(|h| h.enabled)
+        .map(|h| HeaderInput {
+            key: h.key.clone(),
+            value: h.value.clone(),
+            enabled: true,
         })
-        .ok_or_else(|| {
-            format!(
-                "在集合 '{}' 中未找到名为 '{}' 的请求",
-                args.collection_name, args.request_name
-            )
-        })?;
+        .collect();
 
-    // 4. 从 JSON 值构建 RequestInput
-    let method = request_data
-        .get("method")
-        .and_then(|m| m.as_str())
-        .unwrap_or("GET")
-        .to_uppercase();
-    let url = request_data
-        .get("url")
-        .and_then(|u| u.as_str())
-        .ok_or_else(|| format!("请求 '{}' 缺少 url 字段", args.request_name))?
-        .to_string();
-
-    // 解析请求头
-    let raw_headers = request_data.get("headers");
-    let headers: Vec<HeaderInput> = if let Some(hdrs) = raw_headers {
-        if let Some(obj) = hdrs.as_object() {
-            obj.iter()
-                .map(|(k, v)| HeaderInput {
-                    key: k.clone(),
-                    value: v.as_str().unwrap_or("").to_string(),
-                    enabled: true,
-                })
-                .collect()
-        } else if let Some(arr) = hdrs.as_array() {
-            arr.iter()
-                .filter_map(|h| {
-                    let key = h.get("key")?.as_str()?;
-                    let value = h.get("value")?.as_str()?;
-                    let enabled = h.get("enabled").and_then(|e| e.as_bool()).unwrap_or(true);
-                    Some(HeaderInput {
-                        key: key.to_string(),
-                        value: value.to_string(),
-                        enabled,
-                    })
-                })
-                .collect()
-        } else {
-            vec![]
-        }
-    } else {
-        vec![]
-    };
-
-    let body = request_data.get("body").and_then(|b| b.as_str()).map(|s| s.to_string());
-    let content_type = request_data.get("contentType").or_else(|| request_data.get("content_type")).and_then(|c| c.as_str()).map(|s| s.to_string());
+    let body = request.body.clone();
+    let content_type = request.content_type.clone();
 
     let input = RequestInput {
         method,
@@ -658,32 +605,22 @@ fn handle_collection_tree(
     json_mode: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let collections = load_collections_data(data_dir);
-    let items = collections.get("collections").and_then(|v| v.as_array());
     let mut tree_items = Vec::new();
 
-    if let Some(collections_array) = items {
-        for col in collections_array {
-            let name = col.get("name").and_then(|n| n.as_str()).unwrap_or("(未命名)").to_string();
-            let mut requests_info = Vec::new();
-
-            if let Some(reqs) = col.get("requests").and_then(|r| r.as_array()) {
-                for req in reqs {
-                    let req_name = req.get("name").and_then(|n| n.as_str()).unwrap_or("(未命名)").to_string();
-                    let method = req.get("method").and_then(|m| m.as_str()).unwrap_or("GET").to_string();
-                    let url = req.get("url").and_then(|u| u.as_str()).unwrap_or("").to_string();
-                    requests_info.push(serde_json::json!({
-                        "name": req_name,
-                        "method": method,
-                        "url": url,
-                    }));
-                }
-            }
-
-            tree_items.push(serde_json::json!({
-                "name": name,
-                "requests": requests_info,
+    for col in &collections.collections {
+        let mut requests_info = Vec::new();
+        for req in &col.requests {
+            requests_info.push(serde_json::json!({
+                "name": req.name,
+                "method": req.method,
+                "url": req.url,
             }));
         }
+
+        tree_items.push(serde_json::json!({
+            "name": col.name,
+            "requests": requests_info,
+        }));
     }
 
     let tree_output = serde_json::json!({ "collections": tree_items });
@@ -772,22 +709,11 @@ fn handle_export(
     let filtered_collections = if args.collection.is_empty() {
         collections
     } else {
-        let items = collections
-            .get("collections")
-            .and_then(|v| v.as_array())
-            .map(|arr| {
-                arr.iter()
-                    .filter(|item| {
-                        item.get("name")
-                            .and_then(|n| n.as_str())
-                            .map(|name| args.collection.contains(&name.to_string()))
-                            .unwrap_or(false)
-                    })
-                    .cloned()
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
-        serde_json::json!({ "collections": items })
+        let items: Vec<Collection> = collections.collections
+            .into_iter()
+            .filter(|c| args.collection.contains(&c.name))
+            .collect();
+        CollectionData { collections: items }
     };
 
     // 4. 构建导出信封
@@ -819,16 +745,13 @@ fn handle_export(
             "status": "ok",
             "file": output_path.display().to_string(),
             "format": args.format,
-            "collections": filtered_collections["collections"].as_array().map(|a| a.len()).unwrap_or(0),
+            "collections": filtered_collections.collections.len(),
             "environments": environments.environments.len(),
         });
         let output = CliOutput::ok(&data);
         println!("{}", serde_json::to_string(&output)?);
     } else {
-        let collection_count = filtered_collections["collections"]
-            .as_array()
-            .map(|a| a.len())
-            .unwrap_or(0);
+        let collection_count = filtered_collections.collections.len();
         println!("导出成功!");
         println!("  文件: {}", output_path.display());
         println!("  格式: {}", args.format);
@@ -880,10 +803,7 @@ fn handle_import(
     save_collections_data(data_dir, &final_collections)?;
     save_environments_data(data_dir, &final_environments)?;
 
-    let collections_count = final_collections["collections"]
-        .as_array()
-        .map(|a| a.len())
-        .unwrap_or(0);
+    let collections_count = final_collections.collections.len();
     let environments_count = final_environments.environments.len();
 
     if json_mode {
@@ -973,27 +893,15 @@ fn print_test_result(result: &test_runner::TestRunResult) {
 }
 
 /** 打印集合列表（human-readable） */
-fn print_collections(collections: &serde_json::Value) {
-    let items = collections
-        .get("collections")
-        .and_then(|v| v.as_array())
-        .map(|a| a.as_slice())
-        .unwrap_or(&[]);
-
-    if items.is_empty() {
+fn print_collections(cd: &CollectionData) {
+    if cd.collections.is_empty() {
         println!("(无集合)");
         return;
     }
 
     println!("集合列表:");
-    for item in items {
-        let name = item.get("name").and_then(|n| n.as_str()).unwrap_or("(未命名)");
-        let request_count = item
-            .get("requests")
-            .and_then(|r| r.as_array())
-            .map(|a| a.len())
-            .unwrap_or(0);
-        println!("  {} ({} 个请求)", name, request_count);
+    for col in &cd.collections {
+        println!("  {} ({} 个请求)", col.name, col.requests.len());
     }
 }
 
