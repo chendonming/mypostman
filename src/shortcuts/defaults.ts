@@ -198,4 +198,12 @@ export const DEFAULT_COMMANDS: CommandDef[] = [
     scope: "global",
     handler: () => {},
   },
+  {
+    id: "openSettings",
+    label: "Open Settings",
+    category: "Preferences",
+    defaultKeys: [combo("ctrl+,"), combo("meta+,")],
+    scope: "global",
+    handler: () => {},
+  },
 ];

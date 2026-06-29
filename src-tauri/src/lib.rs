@@ -278,6 +278,17 @@ pub struct KeybindingData {
     pub bindings: HashMap<String, Vec<String>>,
 }
 
+/**
+ * 应用设置数据
+ * 存储 UI 缩放、字体、字号等偏好设置
+ */
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SettingsData {
+    pub zoom_level: f64,
+    pub font_family: String,
+    pub font_size: String,
+}
+
 /** 从操作系统应用数据目录加载 keybindings.json */
 #[tauri::command]
 fn load_keybindings(app: AppHandle) -> Result<Option<KeybindingData>, String> {
@@ -308,6 +319,45 @@ fn save_keybindings(app: AppHandle, data: KeybindingData) -> Result<(), String> 
     std::fs::create_dir_all(&data_dir)
         .map_err(|e| format!("Failed to create data dir: {}", e))?;
     let file_path = data_dir.join("keybindings.json");
+    let content =
+        serde_json::to_string_pretty(&data).map_err(|e| format!("Failed to serialize: {}", e))?;
+    std::fs::write(&file_path, content).map_err(|e| format!("Failed to write file: {}", e))?;
+    Ok(())
+}
+
+/** 从操作系统应用数据目录加载 settings.json */
+#[tauri::command]
+fn load_settings(app: AppHandle) -> Result<SettingsData, String> {
+    let data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to get app data dir: {}", e))?;
+    let file_path = data_dir.join("settings.json");
+
+    if !file_path.exists() {
+        return Ok(SettingsData {
+            zoom_level: 1.0,
+            font_family: "inter".into(),
+            font_size: "medium".into(),
+        });
+    }
+
+    let content =
+        std::fs::read_to_string(&file_path).map_err(|e| format!("Failed to read file: {}", e))?;
+    serde_json::from_str(&content)
+        .map_err(|e| format!("Failed to parse: {}", e))
+}
+
+/** 将应用设置持久化到 settings.json */
+#[tauri::command]
+fn save_settings(app: AppHandle, data: SettingsData) -> Result<(), String> {
+    let data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to get app data dir: {}", e))?;
+    std::fs::create_dir_all(&data_dir)
+        .map_err(|e| format!("Failed to create data dir: {}", e))?;
+    let file_path = data_dir.join("settings.json");
     let content =
         serde_json::to_string_pretty(&data).map_err(|e| format!("Failed to serialize: {}", e))?;
     std::fs::write(&file_path, content).map_err(|e| format!("Failed to write file: {}", e))?;
@@ -565,6 +615,8 @@ pub fn run() {
             save_collections,
             load_keybindings,
             save_keybindings,
+            load_settings,
+            save_settings,
             export_data_to_file,
             preview_import,
             import_data_from_file,

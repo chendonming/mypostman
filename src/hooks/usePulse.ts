@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import type {
   HttpMethod,
   SidebarTab,
@@ -19,7 +20,9 @@ import type {
   ImportResult,
   TestRunResult,
   TabState,
+  AppSettings,
 } from "../types";
+import { DEFAULT_SETTINGS } from "../types";
 import type { ToastItem } from "../components/Toast";
 
 // ============================================================
@@ -1541,6 +1544,68 @@ export function usePulse() {
   }, [pendingTestScriptPath, environments, activeEnvironmentId]);
 
   // ============================================================
+  // 应用设置状态管理
+  // ============================================================
+
+  /** 应用设置（UI 缩放、字体等） */
+  const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
+  /** 标记：设置数据是否已从 Rust 加载完成 */
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
+  /** 设置面板是否可见 */
+  const [settingsDialogVisible, setSettingsDialogVisible] = useState(false);
+
+  // 启动时从 Rust 加载设置
+  useEffect(() => {
+    invoke<AppSettings>("load_settings")
+      .then((data) => {
+        setSettings(data);
+        setSettingsLoaded(true);
+      })
+      .catch(() => {
+        // settings.json 不存在时使用默认值
+        setSettingsLoaded(true);
+      });
+  }, []);
+
+  // 设置变化时调用 Rust 持久化（带 300ms 防抖）
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (!settingsLoaded) return;
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => {
+      invoke("save_settings", { data: settings }).catch(() => {
+        // 静默处理保存失败
+      });
+    }, 300);
+    return () => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    };
+  }, [settings, settingsLoaded]);
+
+  // 缩放变化时通过 Tauri 原生 API 设置 WebView 缩放（与 VS Code 一致的方式）
+  useEffect(() => {
+    if (!settingsLoaded) return;
+    getCurrentWebviewWindow().setZoom(settings.zoomLevel).catch(() => {
+      // WebView 尚未准备好时静默忽略
+    });
+  }, [settings.zoomLevel, settingsLoaded]);
+
+  /** 合并更新部分设置字段 */
+  const updateSettings = useCallback((partial: Partial<AppSettings>) => {
+    setSettings((prev) => ({ ...prev, ...partial }));
+  }, []);
+
+  /** 打开设置面板 */
+  const openSettingsDialog = useCallback(() => {
+    setSettingsDialogVisible(true);
+  }, []);
+
+  /** 关闭设置面板 */
+  const closeSettingsDialog = useCallback(() => {
+    setSettingsDialogVisible(false);
+  }, []);
+
+  // ============================================================
   // 导出状态和方法
   // ============================================================
 
@@ -1653,6 +1718,13 @@ export function usePulse() {
     testRunError,
     handlePickTestScript,
     handleRunTestScript,
+    /* ── 应用设置 ── */
+    settings,
+    settingsLoaded,
+    settingsDialogVisible,
+    updateSettings,
+    openSettingsDialog,
+    closeSettingsDialog,
     /* ── 标签页管理（新增） ── */
     tabs,
     activeTabId,

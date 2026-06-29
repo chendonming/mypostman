@@ -255,3 +255,24 @@ export interface TabState {
   editingRequest: { collectionId: string; requestId: string } | null;
   savedSnapshot: TabSnapshot | null;
 }
+
+// ============================================================
+// 应用设置相关类型定义
+// ============================================================
+
+/** 应用设置 */
+export interface AppSettings {
+  /** UI 缩放比例 */
+  zoomLevel: number;
+  /** 字体标识：inter | system-ui | jetbrains-mono */
+  fontFamily: string;
+  /** 字号标识：small | medium | large */
+  fontSize: string;
+}
+
+/** 默认应用设置 */
+export const DEFAULT_SETTINGS: AppSettings = {
+  zoomLevel: 1.0,
+  fontFamily: "inter",
+  fontSize: "medium",
+};

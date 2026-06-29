@@ -13,6 +13,8 @@ import ConfirmDialog from "./components/ConfirmDialog";
 import ImportDialog from "./components/ImportDialog";
 import ExportDialog from "./components/ExportDialog";
 import TestScriptDialog from "./components/TestScriptDialog";
+import SettingsDialog from "./components/SettingsDialog";
+import { FONT_FAMILY_MAP, FONT_SIZE_PX_MAP } from "./components/SettingsDialog";
 import ToastContainer from "./components/Toast";
 
 /**
@@ -113,6 +115,8 @@ export default function App() {
           return { ...cmd, handler: state.cancelSave };
         case "openKeybindingsEditor":
           return { ...cmd, handler: () => setEditorOpen(true) };
+        case "openSettings":
+          return { ...cmd, handler: () => state.openSettingsDialog() };
         case "closeTab":
           return {
             ...cmd,
@@ -197,7 +201,13 @@ export default function App() {
   }, []);
 
   return (
-    <div className="h-screen flex overflow-hidden bg-pulse-deepest">
+    <div
+      className="h-screen flex overflow-hidden bg-pulse-deepest"
+      style={{
+        fontFamily: state.settingsLoaded ? FONT_FAMILY_MAP[state.settings.fontFamily] || undefined : undefined,
+        fontSize: state.settingsLoaded ? `${FONT_SIZE_PX_MAP[state.settings.fontSize] || 14}px` : undefined,
+      }}
+    >
       <Sidebar
         collections={state.collections}
         history={state.history}
@@ -230,6 +240,8 @@ export default function App() {
         onRunTestScript={state.openTestScriptDialog}
         /* ── 新标签页打开请求 ── */
         onOpenInNewTab={openInNewTab}
+        /* ── 打开设置面板 ── */
+        onOpenSettings={state.openSettingsDialog}
       />
 
       <main className="flex-1 flex flex-col min-w-0">
@@ -431,6 +443,15 @@ export default function App() {
         onPickFile={state.handlePickTestScript}
         onRun={state.handleRunTestScript}
         onCancel={state.closeTestScriptDialog}
+      />
+
+      {/* 设置对话框 */}
+      <SettingsDialog
+        visible={state.settingsDialogVisible}
+        settings={state.settings}
+        onUpdateSettings={state.updateSettings}
+        onClose={state.closeSettingsDialog}
+        engine={engineRef.current}
       />
 
       {/* Toast 通知容器 */}
