@@ -102,7 +102,7 @@ The **`pulse-core` library** encapsulates all shared business logic with zero Ta
 | Layer | Technology |
 |-------|-----------|
 | **Desktop Shell** | [Tauri v2](https://v2.tauri.app/) (WebView2 on Windows) |
-| **Frontend** | React 18 + TypeScript + Vite 6 |
+| **Frontend** | React 18 + TypeScript + Vite 6 | 
 | **Styling** | Tailwind CSS 3.4 with custom `pulse-*` design tokens |
 | **Backend (Shared)** | Rust — `pulse-core` library (reqwest 0.12, clap, serde) |
 | **CLI** | Standalone binary — `pulse-cli` (no Tauri dependency) |
