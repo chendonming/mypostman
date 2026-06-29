@@ -91,3 +91,39 @@ Convenience component classes in `src/index.css`: `.panel`, `.btn-primary`, `.bt
 - `#[tauri::command]` functions must NOT be `pub` (Rust 2021 macro namespace conflict with Tauri v2)
 - Timing waterfall phases (DNS/TCP/TLS) are estimated as percentages of TTFB, not measured — reqwest lacks per-step timing hooks
 - Icons are pre-generated via sharp in `src-tauri/icons/`; regenerate with `node -e "require('sharp')..."` if the SVG changes
+
+## AI Agent 集成
+
+### MCP 工具（推荐）
+项目提供 pulse-mcp MCP 服务器：
+- `send_request` — 发送 HTTP 请求（支持环境变量、Bearer Token）
+- `run_test_script` / `run_test_file` — 运行 YAML 测试脚本
+- `list_collections` / `get_collection_tree` — 浏览集合
+- `get_collection_request` — 获取集合中特定请求的配置
+- `list_environments` / `activate_environment` — 管理环境变量
+
+### CLI 命令（备用）
+pulse-cli 二进制：非 TTY 环境自动输出 JSON
+```bash
+npm run cli:build          # 构建 CLI 调试版
+npm run cli:run -- request send -m GET <url>     # 发送请求
+npm run cli:run -- test <path>                  # 运行测试脚本
+npm run cli:run -- collections list             # 列出集合
+npm run cli:run -- collections tree             # 集合树
+npm run cli:run -- env list                     # 列出环境
+npm run cli:run -- env use <name>               # 激活环境
+npm run cli:run -- export -f yaml               # 导出数据
+```
+
+### MCP 服务器
+```bash
+npm run mcp:build          # 构建 MCP 服务器调试版
+npm run mcp:build:release  # 构建 MCP 服务器发布版
+npm run mcp:run            # 运行 MCP 服务器
+```
+
+### 典型工作流
+1. `list_collections` 查看可用 API
+2. `activate_environment` 选择环境
+3. `send_request` 发起测试
+4. `run_test_file` 运行完整的断言测试

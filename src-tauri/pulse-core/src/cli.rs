@@ -6,13 +6,14 @@
 // ============================================================
 
 use clap::{Args, Parser, Subcommand};
+use serde::Serialize;
+use std::io::IsTerminal;
 use std::path::PathBuf;
 
 use crate::{
-    EnvironmentData, EnvironmentVariable, HeaderInput, RequestInput, ResponseData,
-    execute_http_request, load_collections_data, load_environments_data,
+    analyze_response, execute_http_request, load_collections_data, load_environments_data,
     resolve_data_dir, save_collections_data, save_environments_data,
-    substitute_variables,
+    substitute_variables, EnvironmentData, EnvironmentVariable, HeaderInput, RequestInput, ResponseData,
 };
 use crate::io::{self, ExportFormat};
 use crate::test_runner;
@@ -37,7 +38,8 @@ struct Cli {
 #[derive(Subcommand)]
 enum Command {
     /** 发送 HTTP 请求并打印响应 */
-    Request(RequestArgs),
+    #[command(subcommand)]
+    Request(RequestCommand),
     /** 运行 YAML 测试脚本 */
     Test(TestArgs),
     /** 管理集合（列出等） */
@@ -52,7 +54,18 @@ enum Command {
     Import(ImportArgs),
 }
 
-/** request 子命令参数 */
+/** request 子命令（支持多种请求来源） */
+#[derive(Subcommand)]
+enum RequestCommand {
+    /** 直接发送 HTTP 请求（url + 方法 + 头 + 体） */
+    Send(RequestArgs),
+    /** 从集合中按名称提取请求并发送 */
+    FromCollection(RequestFromCollectionArgs),
+    /** 从 JSON 文件读取完整请求配置后发送 */
+    FromFile(RequestFromFileArgs),
+}
+
+/** request send 子命令参数（原有的 request 参数） */
 #[derive(Args)]
 struct RequestArgs {
     /** HTTP 方法 */
@@ -84,6 +97,34 @@ struct RequestArgs {
     url: String,
 }
 
+/** request from-collection 子命令参数 */
+#[derive(Args)]
+struct RequestFromCollectionArgs {
+    /** 集合名称 */
+    #[arg(help = "集合名称")]
+    collection_name: String,
+
+    /** 请求名称 */
+    #[arg(help = "请求名称")]
+    request_name: String,
+
+    /** 激活的环境名称 */
+    #[arg(short = 'e', long = "env", help = "激活的环境名称（用于 {{key}} 变量替换）")]
+    env: Option<String>,
+}
+
+/** request from-file 子命令参数 */
+#[derive(Args)]
+struct RequestFromFileArgs {
+    /** 激活的环境名称 */
+    #[arg(short = 'e', long = "env", help = "激活的环境名称（用于 {{key}} 变量替换）")]
+    env: Option<String>,
+
+    /** JSON 请求配置文件的路径 */
+    #[arg(help = "JSON 请求配置文件路径（包含 method/url/headers/body/content_type 的 RequestInput）")]
+    path: String,
+}
+
 /** test 子命令参数 */
 #[derive(Args)]
 struct TestArgs {
@@ -110,6 +151,8 @@ enum EnvAction {
 enum CollectionAction {
     /** 列出所有集合 */
     List,
+    /** 以树形结构展示所有集合及其请求的方法和 URL */
+    Tree,
 }
 
 /** export 子命令参数 */
@@ -141,6 +184,86 @@ struct ImportArgs {
 }
 
 // ============================================================
+// 结构化输出类型
+// ============================================================
+
+/**
+ * 统一的结构化 CLI 输出，JSON 模式下所有命令输出此格式
+ *
+ * 示例：
+ *   {"ok": true, "data": { ... }}
+ *   {"ok": false, "error": "请求失败: Connection refused", "error_type": "connection", "code": 1}
+ */
+#[derive(Debug, Serialize)]
+pub struct CliOutput<T: Serialize> {
+    pub ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data: Option<T>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub code: Option<i32>,
+}
+
+/**
+ * 带分析的响应数据（用于 JSON 模式输出）
+ *
+ * 在原有 ResponseData 基础上附加 _analysis 字段，
+ * 帮助 AI Agent 理解响应结构。
+ */
+#[derive(Debug, Serialize)]
+struct ResponseWithAnalysis {
+    #[serde(flatten)]
+    response: ResponseData,
+    #[serde(rename = "_analysis")]
+    analysis: crate::ResponseAnalysis,
+}
+impl<T: Serialize> CliOutput<T> {
+    /** 创建成功输出 */
+    pub fn ok(data: T) -> Self {
+        CliOutput {
+            ok: true,
+            data: Some(data),
+            error: None,
+            error_type: None,
+            code: None,
+        }
+    }
+
+    /** 创建失败输出（自动推断错误类型） */
+    pub fn err(error: String) -> Self {
+        let (error_type, code) = classify_error(&error);
+        CliOutput {
+            ok: false,
+            data: None,
+            error: Some(error),
+            error_type: Some(error_type),
+            code: Some(code),
+        }
+    }
+}
+
+/**
+ * 根据错误消息推断错误类型和退出码
+ */
+fn classify_error(error: &str) -> (String, i32) {
+    let lower = error.to_lowercase();
+    if lower.contains("connection") || lower.contains("dns") || lower.contains("resolve") || lower.contains("connect") || lower.contains("timeout") {
+        ("connection".to_string(), 1)
+    } else if lower.contains("format") || lower.contains("parse") || lower.contains("invalid") {
+        ("format".to_string(), 2)
+    } else if lower.contains("not found") || lower.contains("找不到") || lower.contains("不存在") {
+        ("not_found".to_string(), 3)
+    } else if lower.contains("permission") || lower.contains("denied") || lower.contains("auth") || lower.contains("unauthorized") {
+        ("auth".to_string(), 4)
+    } else {
+        ("unknown".to_string(), 99)
+    }
+}
+
+// ============================================================
 // CLI 入口
 // ============================================================
 
@@ -149,22 +272,40 @@ struct ImportArgs {
  *
  * 1. 解析命令行参数
  * 2. 确定数据目录
- * 3. 派发到对应命令处理器
- * 4. 打印输出
+ * 3. 非 TTY 环境自动启用 JSON 输出（方便 AI Agent 解析）
+ * 4. 派发到对应命令处理器
+ * 5. 结构化输出（JSON 模式统一样式）
  */
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
-    let json_mode = cli.json;
+    // 非 TTY 环境（如管道、子进程、CI）自动启用 JSON 输出
+    let json_mode = cli.json || !std::io::stdout().is_terminal();
     let data_dir = resolve_data_dir()?;
 
-    match cli.command {
-        Command::Request(args) => handle_request(&args, &data_dir, json_mode),
+    let result = match cli.command {
+        Command::Request(cmd) => handle_request(&cmd, &data_dir, json_mode),
         Command::Test(args) => handle_test(&args, &data_dir, json_mode),
         Command::Collections(action) => handle_collections_action(&action, &data_dir, json_mode),
         Command::Env(action) => handle_env_action(&action, &data_dir, json_mode),
         Command::Export(args) => handle_export(&args, &data_dir, json_mode),
         Command::Import(args) => handle_import(&args, &data_dir, json_mode),
+    };
+
+    // 在 JSON 模式下，统一包裹为结构化输出
+    match result {
+        Ok(()) => {}
+        Err(e) => {
+            if json_mode {
+                let output = CliOutput::<serde_json::Value>::err(format!("{}", e));
+                println!("{}", serde_json::to_string(&output)?);
+            } else {
+                eprintln!("错误: {}", e);
+            }
+            std::process::exit(1);
+        }
     }
+
+    Ok(())
 }
 
 // ============================================================
@@ -204,16 +345,84 @@ fn get_active_variables(
 
 // -------- request 命令 --------
 
-/** 处理 request 子命令：发送 HTTP 请求并打印响应 */
+/** 处理 request 子命令调度 */
 fn handle_request(
+    cmd: &RequestCommand,
+    data_dir: &std::path::Path,
+    json_mode: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    match cmd {
+        RequestCommand::Send(args) => handle_send_request(args, data_dir, json_mode),
+        RequestCommand::FromCollection(args) => handle_request_from_collection(args, data_dir, json_mode),
+        RequestCommand::FromFile(args) => handle_request_from_file(args, data_dir, json_mode),
+    }
+}
+
+/**
+ * 执行请求的公共逻辑：变量替换 → HTTP 调用 → 输出
+ *
+ * 被 send/from-collection/from-file 三个命令共用
+ */
+fn execute_and_print_request(
+    input: RequestInput,
+    variables: &[EnvironmentVariable],
+    json_mode: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let url = substitute_variables(&input.url, variables);
+    let substituted_headers: Vec<HeaderInput> = input
+        .headers
+        .iter()
+        .map(|h| HeaderInput {
+            key: substitute_variables(&h.key, variables),
+            value: substitute_variables(&h.value, variables),
+            enabled: h.enabled,
+        })
+        .collect();
+    let body = input
+        .body
+        .as_ref()
+        .map(|b| substitute_variables(b, variables));
+    let content_type = input
+        .content_type
+        .as_ref()
+        .map(|ct| substitute_variables(ct, variables));
+
+    let exec_input = RequestInput {
+        method: input.method,
+        url: url.clone(),
+        headers: substituted_headers,
+        body,
+        content_type,
+    };
+
+    let rt = tokio::runtime::Runtime::new()?;
+    let result = rt.block_on(execute_http_request(exec_input))?;
+
+    // 在 JSON 模式下，使用结构化输出包裹（含响应分析）
+    if json_mode {
+        let analysis = analyze_response(&result.body);
+        let wrapped = ResponseWithAnalysis {
+            response: result,
+            analysis,
+        };
+        let output = CliOutput::ok(&wrapped);
+        println!("{}", serde_json::to_string(&output)?);
+    } else {
+        print_response(&result);
+    }
+
+    Ok(())
+}
+
+/** 处理 request send 子命令：直接指定 URL + 参数发送请求 */
+fn handle_send_request(
     args: &RequestArgs,
     data_dir: &std::path::Path,
     json_mode: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // 1. 获取活跃环境变量
     let variables = get_active_variables(data_dir, args.env.as_deref());
 
-    // 2. 解析请求头
+    // 解析请求头
     let mut headers: Vec<HeaderInput> = Vec::new();
     for h in &args.header {
         if let Some(pos) = h.find(':') {
@@ -225,7 +434,7 @@ fn handle_request(
         }
     }
 
-    // 3. 注入 Bearer Token（如果指定）
+    // 注入 Bearer Token（如果指定）
     if let Some(token) = &args.auth_bearer {
         headers.push(HeaderInput {
             key: "Authorization".to_string(),
@@ -234,7 +443,6 @@ fn handle_request(
         });
     }
 
-    // 4. 构建 RequestInput
     let method = args.method.to_uppercase();
     let input = RequestInput {
         method: method.clone(),
@@ -244,46 +452,130 @@ fn handle_request(
         content_type: args.content_type.clone(),
     };
 
-    // 5. 执行变量替换后发送请求
-    let url = substitute_variables(&args.url, &variables);
-    let substituted_headers: Vec<HeaderInput> = input
-        .headers
-        .iter()
-        .map(|h| HeaderInput {
-            key: substitute_variables(&h.key, &variables),
-            value: substitute_variables(&h.value, &variables),
-            enabled: h.enabled,
-        })
-        .collect();
-    let body = input
-        .body
-        .as_ref()
-        .map(|b| substitute_variables(b, &variables));
-    let content_type = input
-        .content_type
-        .as_ref()
-        .map(|ct| substitute_variables(ct, &variables));
+    execute_and_print_request(input, &variables, json_mode)
+}
 
-    let exec_input = RequestInput {
+/** 处理 request from-collection 子命令：从集合中按名称提取请求并发送 */
+fn handle_request_from_collection(
+    args: &RequestFromCollectionArgs,
+    data_dir: &std::path::Path,
+    json_mode: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let variables = get_active_variables(data_dir, args.env.as_deref());
+
+    // 1. 加载集合数据
+    let collections = load_collections_data(data_dir);
+    let items = collections
+        .get("collections")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| format!("集合数据为空或格式不正确"))?;
+
+    // 2. 按集合名称查找
+    let collection = items
+        .iter()
+        .find(|c| {
+            c.get("name")
+                .and_then(|n| n.as_str())
+                .map(|n| n == args.collection_name)
+                .unwrap_or(false)
+        })
+        .ok_or_else(|| format!("未找到名为 '{}' 的集合", args.collection_name))?;
+
+    // 3. 在集合中按请求名称查找
+    let requests = collection
+        .get("requests")
+        .and_then(|r| r.as_array())
+        .ok_or_else(|| format!("集合 '{}' 中没有请求", args.collection_name))?;
+
+    let request_data = requests
+        .iter()
+        .find(|r| {
+            r.get("name")
+                .and_then(|n| n.as_str())
+                .map(|n| n == args.request_name)
+                .unwrap_or(false)
+        })
+        .ok_or_else(|| {
+            format!(
+                "在集合 '{}' 中未找到名为 '{}' 的请求",
+                args.collection_name, args.request_name
+            )
+        })?;
+
+    // 4. 从 JSON 值构建 RequestInput
+    let method = request_data
+        .get("method")
+        .and_then(|m| m.as_str())
+        .unwrap_or("GET")
+        .to_uppercase();
+    let url = request_data
+        .get("url")
+        .and_then(|u| u.as_str())
+        .ok_or_else(|| format!("请求 '{}' 缺少 url 字段", args.request_name))?
+        .to_string();
+
+    // 解析请求头
+    let raw_headers = request_data.get("headers");
+    let headers: Vec<HeaderInput> = if let Some(hdrs) = raw_headers {
+        if let Some(obj) = hdrs.as_object() {
+            obj.iter()
+                .map(|(k, v)| HeaderInput {
+                    key: k.clone(),
+                    value: v.as_str().unwrap_or("").to_string(),
+                    enabled: true,
+                })
+                .collect()
+        } else if let Some(arr) = hdrs.as_array() {
+            arr.iter()
+                .filter_map(|h| {
+                    let key = h.get("key")?.as_str()?;
+                    let value = h.get("value")?.as_str()?;
+                    let enabled = h.get("enabled").and_then(|e| e.as_bool()).unwrap_or(true);
+                    Some(HeaderInput {
+                        key: key.to_string(),
+                        value: value.to_string(),
+                        enabled,
+                    })
+                })
+                .collect()
+        } else {
+            vec![]
+        }
+    } else {
+        vec![]
+    };
+
+    let body = request_data.get("body").and_then(|b| b.as_str()).map(|s| s.to_string());
+    let content_type = request_data.get("contentType").or_else(|| request_data.get("content_type")).and_then(|c| c.as_str()).map(|s| s.to_string());
+
+    let input = RequestInput {
         method,
-        url: url.clone(),
-        headers: substituted_headers,
+        url,
+        headers,
         body,
         content_type,
     };
 
-    // 6. 创建 tokio 运行时并发起 HTTP 请求
-    let rt = tokio::runtime::Runtime::new()?;
-    let result = rt.block_on(execute_http_request(exec_input))?;
+    execute_and_print_request(input, &variables, json_mode)
+}
 
-    // 7. 打印输出
-    if json_mode {
-        println!("{}", serde_json::to_string_pretty(&result)?);
-    } else {
-        print_response(&result);
-    }
+/** 处理 request from-file 子命令：从 JSON 文件读取请求配置后发送 */
+fn handle_request_from_file(
+    args: &RequestFromFileArgs,
+    data_dir: &std::path::Path,
+    json_mode: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let variables = get_active_variables(data_dir, args.env.as_deref());
 
-    Ok(())
+    // 1. 读取文件
+    let content = std::fs::read_to_string(&args.path)
+        .map_err(|e| format!("无法读取请求配置文件 '{}': {}", args.path, e))?;
+
+    // 2. 反序列化为 RequestInput
+    let input: RequestInput = serde_json::from_str(&content)
+        .map_err(|e| format!("请求配置文件格式错误: {}", e))?;
+
+    execute_and_print_request(input, &variables, json_mode)
 }
 
 // -------- test 命令 --------
@@ -305,9 +597,10 @@ fn handle_test(
     let rt = tokio::runtime::Runtime::new()?;
     let result = rt.block_on(test_runner::run_test_script_internal(&content, &variables));
 
-    // 4. 打印输出
+    // 4. 打印输出（JSON 模式下使用结构化输出）
     if json_mode {
-        println!("{}", serde_json::to_string_pretty(&result)?);
+        let output = CliOutput::ok(&result);
+        println!("{}", serde_json::to_string(&output)?);
     } else {
         print_test_result(&result);
     }
@@ -325,7 +618,8 @@ fn handle_list_collections(
     let collections = load_collections_data(data_dir);
 
     if json_mode {
-        println!("{}", serde_json::to_string_pretty(&collections)?);
+        let output = CliOutput::ok(&collections);
+        println!("{}", serde_json::to_string(&output)?);
     } else {
         print_collections(&collections);
     }
@@ -343,7 +637,81 @@ fn handle_collections_action(
 ) -> Result<(), Box<dyn std::error::Error>> {
     match action {
         CollectionAction::List => handle_list_collections(data_dir, json_mode),
+        CollectionAction::Tree => handle_collection_tree(data_dir, json_mode),
     }
+}
+
+/**
+ * 处理 collection tree 子命令：以树形结构展示所有集合及其请求
+ *
+ * JSON 输出格式：
+ * {
+ *   "collections": [
+ *     {"name": "用户API", "requests": [
+ *       {"name": "获取用户列表", "method": "GET", "url": "{{base_url}}/users"}
+ *     ]}
+ *   ]
+ * }
+ */
+fn handle_collection_tree(
+    data_dir: &std::path::Path,
+    json_mode: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let collections = load_collections_data(data_dir);
+    let items = collections.get("collections").and_then(|v| v.as_array());
+    let mut tree_items = Vec::new();
+
+    if let Some(collections_array) = items {
+        for col in collections_array {
+            let name = col.get("name").and_then(|n| n.as_str()).unwrap_or("(未命名)").to_string();
+            let mut requests_info = Vec::new();
+
+            if let Some(reqs) = col.get("requests").and_then(|r| r.as_array()) {
+                for req in reqs {
+                    let req_name = req.get("name").and_then(|n| n.as_str()).unwrap_or("(未命名)").to_string();
+                    let method = req.get("method").and_then(|m| m.as_str()).unwrap_or("GET").to_string();
+                    let url = req.get("url").and_then(|u| u.as_str()).unwrap_or("").to_string();
+                    requests_info.push(serde_json::json!({
+                        "name": req_name,
+                        "method": method,
+                        "url": url,
+                    }));
+                }
+            }
+
+            tree_items.push(serde_json::json!({
+                "name": name,
+                "requests": requests_info,
+            }));
+        }
+    }
+
+    let tree_output = serde_json::json!({ "collections": tree_items });
+
+    if json_mode {
+        let output = CliOutput::ok(&tree_output);
+        println!("{}", serde_json::to_string(&output)?);
+    } else {
+        println!("集合树结构:");
+        for col in &tree_items {
+            let name = col["name"].as_str().unwrap_or("");
+            println!("  {}:", name);
+            if let Some(reqs) = col["requests"].as_array() {
+                if reqs.is_empty() {
+                    println!("    (无请求)");
+                } else {
+                    for req in reqs {
+                        let method = req["method"].as_str().unwrap_or("");
+                        let url = req["url"].as_str().unwrap_or("");
+                        let rname = req["name"].as_str().unwrap_or("");
+                        println!("    {} {}  {}", method, url, rname);
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(())
 }
 
 /** 处理 env 子命令：列出环境或激活环境 */
@@ -356,7 +724,8 @@ fn handle_env_action(
         EnvAction::List => {
             let env_data = load_environments_data(data_dir);
             if json_mode {
-                println!("{}", serde_json::to_string_pretty(&env_data)?);
+                let output = CliOutput::ok(&env_data);
+                println!("{}", serde_json::to_string(&output)?);
             } else {
                 print_environments(&env_data);
             }
@@ -367,7 +736,12 @@ fn handle_env_action(
                 env_data.active_id = Some(env.id.clone());
                 save_environments_data(data_dir, &env_data)?;
                 if json_mode {
-                    println!("{{\"status\":\"ok\",\"active_environment\":\"{}\"}}", name);
+                    let data = serde_json::json!({
+                        "status": "ok",
+                        "active_environment": name
+                    });
+                    let output = CliOutput::ok(&data);
+                    println!("{}", serde_json::to_string(&output)?);
                 } else {
                     println!("已激活环境: {}", name);
                 }
@@ -441,12 +815,15 @@ fn handle_export(
         .map_err(|e| format!("无法写入文件 '{}': {}", output_path.display(), e))?;
 
     if json_mode {
-        println!(
-            "{{\"status\":\"ok\",\"file\":\"{}\",\"format\":\"{}\",\"collections\":{}}}",
-            output_path.display(),
-            args.format,
-            filtered_collections["collections"].as_array().map(|a| a.len()).unwrap_or(0)
-        );
+        let data = serde_json::json!({
+            "status": "ok",
+            "file": output_path.display().to_string(),
+            "format": args.format,
+            "collections": filtered_collections["collections"].as_array().map(|a| a.len()).unwrap_or(0),
+            "environments": environments.environments.len(),
+        });
+        let output = CliOutput::ok(&data);
+        println!("{}", serde_json::to_string(&output)?);
     } else {
         let collection_count = filtered_collections["collections"]
             .as_array()
@@ -510,10 +887,14 @@ fn handle_import(
     let environments_count = final_environments.environments.len();
 
     if json_mode {
-        println!(
-            "{{\"status\":\"ok\",\"strategy\":\"{}\",\"collections\":{},\"environments\":{}}}",
-            args.strategy, collections_count, environments_count
-        );
+        let data = serde_json::json!({
+            "status": "ok",
+            "strategy": args.strategy,
+            "collections": collections_count,
+            "environments": environments_count,
+        });
+        let output = CliOutput::ok(&data);
+        println!("{}", serde_json::to_string(&output)?);
     } else {
         println!("导入成功!");
         println!("  策略: {}", args.strategy);

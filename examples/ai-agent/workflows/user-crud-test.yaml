@@ -1,0 +1,91 @@
+# ============================================================
+# 用户 CRUD 测试脚本
+# ============================================================
+# 完整的用户增删改查测试流程。
+# 使用前需先创建并激活包含 base_url 和 auth_token 的环境。
+#
+# 运行: pulse test examples/ai-agent/workflows/user-crud-test.yaml
+# 或通过 MCP: run_test_file("examples/ai-agent/workflows/user-crud-test.yaml")
+# ============================================================
+
+name: "用户 CRUD 测试"
+description: "测试用户 API 的增删改查完整流程"
+
+# 脚本级变量（优先级高于激活环境的同名变量）
+variables:
+  base_url: "https://jsonplaceholder.typicode.com"
+  content_type: "application/json"
+
+requests:
+  # -------- 步骤 1: 创建用户 --------
+  - name: "创建用户"
+    method: POST
+    url: "{{base_url}}/users"
+    headers:
+      Content-Type: "{{content_type}}"
+    body: |
+      {
+        "name": "测试用户",
+        "email": "test@example.com",
+        "username": "testuser"
+      }
+    assertions:
+      - "status == 201"
+      - "body.name == '测试用户'"
+      - "body.id != null"
+
+  # -------- 步骤 2: 获取用户列表 --------
+  - name: "获取用户列表"
+    method: GET
+    url: "{{base_url}}/users"
+    assertions:
+      - "status == 200"
+      - "body contains example.com"
+      - "body contains Test"
+
+  # -------- 步骤 3: 获取单个用户 --------
+  - name: "获取单个用户"
+    method: GET
+    url: "{{base_url}}/users/1"
+    assertions:
+      - "status == 200"
+      - "body.id == 1"
+      - "body.name != null"
+
+  # -------- 步骤 4: 更新用户 --------
+  - name: "更新用户信息"
+    method: PATCH
+    url: "{{base_url}}/users/1"
+    headers:
+      Content-Type: "{{content_type}}"
+    body: |
+      {
+        "name": "已更新的用户"
+      }
+    assertions:
+      - "status == 200"
+      - "body.name == '已更新的用户'"
+
+  # -------- 步骤 5: 查询已更新的用户 --------
+  - name: "验证更新结果"
+    method: GET
+    url: "{{base_url}}/users/1"
+    assertions:
+      - "status == 200"
+      - "body.name == '已更新的用户'"
+
+  # -------- 步骤 6: 删除用户 --------
+  - name: "删除用户"
+    method: DELETE
+    url: "{{base_url}}/users/1"
+    assertions:
+      - "status == 200"
+
+  # -------- 步骤 7: 遍历所有用户 --------
+  - name: "遍历所有用户"
+    method: GET
+    url: "{{base_url}}/users"
+    assertions:
+      - "status == 200"
+      - "body contains Leanne Graham"
+      - "duration_ms < 5000"

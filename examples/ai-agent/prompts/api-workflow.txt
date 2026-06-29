@@ -1,0 +1,63 @@
+# ============================================================
+# Claude Code / AI Agent Prompt 示例
+#
+# 在 Claude Code 中直接粘贴使用，或作为自定义指令的模板。
+# ============================================================
+
+## Prompt 1：探索并测试新 API
+
+```
+请帮我探索 Pulse 中已有的 API 集合和环境：
+
+1. 先调用 list_collections 查看有哪些集合
+2. 调用 list_environments 查看有哪些可用环境
+3. 选择一个环境激活
+4. 从集合中选取一个 GET 请求，用 send_request 发送测试
+5. 用 get_collection_tree 查看完整的 API 结构
+```
+
+## Prompt 2：运行完整测试套件
+
+```
+请帮我运行 Pulse 中的测试套件：
+
+1. 调用 run_test_file 运行 examples/ai-agent/workflows/user-crud-test.yaml
+2. 告诉我测试结果（哪些通过、哪些失败、失败原因）
+3. 如果有失败的断言，帮我分析原因并提出修复建议
+```
+
+## Prompt 3：新建 API 测试
+
+```
+我需要验证一个 API 的健康状态：
+
+1. 使用 send_request 发送 GET 请求到 https://httpbin.org/get
+2. 告诉我响应状态码、耗时和响应体大小
+3. 如果响应体是 JSON，分析其结构
+4. 然后发送 POST 请求到 https://httpbin.org/post，
+   请求体为 {"test": true}，Content-Type 为 application/json
+5. 比较两次响应的差异
+```
+
+## Prompt 4：编写 YAML 测试脚本
+
+```
+请帮我创建一个 YAML 测试脚本，用来测试电商 API 的以下场景：
+
+1. 获取商品列表（GET /products）→ 期望 status 200
+2. 获取单个商品详情（GET /products/1）→ 期望 status 200，id 为 1
+3. 搜索商品（GET /products?q=phone）→ 期望 status 200，响应包含搜索结果
+
+使用 run_test_script 或先保存为文件再用 run_test_file 执行。
+```
+
+## Prompt 5：环境变量排查
+
+```
+请帮我检查 Pulse 中环境变量的配置情况：
+
+1. 列出所有环境（list_environments）
+2. 如果有多个环境，分别查看它们的配置
+3. 切换到一个不同的环境（activate_environment）
+4. 发送一个带 {{variable}} 的请求，验证变量替换是否生效
+```

@@ -11,7 +11,13 @@
     "tauri:mock": "tauri dev --features mock-server",
     "cli:build": "cargo build --manifest-path src-tauri/Cargo.toml --package pulse-cli",
     "cli:build:release": "cargo build --manifest-path src-tauri/Cargo.toml --package pulse-cli --release",
-    "cli:run": "cargo run --manifest-path src-tauri/Cargo.toml --package pulse-cli --"
+    "cli:run": "cargo run --manifest-path src-tauri/Cargo.toml --package pulse-cli --",
+    "mcp:build": "cargo build --manifest-path src-tauri/Cargo.toml --package pulse-mcp",
+    "mcp:build:release": "cargo build --manifest-path src-tauri/Cargo.toml --package pulse-mcp --release",
+    "mcp:run": "cargo run --manifest-path src-tauri/Cargo.toml --package pulse-mcp --",
+    "mock-server:build": "cargo build --manifest-path src-tauri/Cargo.toml --package pulse-mock-server",
+    "mock-server:build:release": "cargo build --manifest-path src-tauri/Cargo.toml --package pulse-mock-server --release",
+    "mock-server:run": "cargo run --manifest-path src-tauri/Cargo.toml --package pulse-mock-server"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

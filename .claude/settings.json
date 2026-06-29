@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "pulse": {
+      "description": "Pulse API 测试工具的 MCP 服务器，支持发送 HTTP 请求、运行测试脚本、管理集合和环境",
+      "type": "stdio",
+      "command": "pulse-mcp",
+      "args": []
+    }
+  }
+}

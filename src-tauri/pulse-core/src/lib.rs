@@ -407,3 +407,142 @@ pub fn chrono_now_iso() -> String {
 fn is_leap_year(y: i64) -> bool {
     (y % 4 == 0 && y % 100 != 0) || (y % 400 == 0)
 }
+
+// ============================================================
+// 响应分析 —— 为 AI Agent 提供结构化响应摘要
+// ============================================================
+
+/**
+ * 响应分析结果，包含 JSON 路径结构和体摘要
+ *
+ * 在 CLI JSON 模式下附加到响应输出中供 AI 解析：
+ * {
+ *   "status": 200,
+ *   "body": "{...}",
+ *   "_analysis": {
+ *     "json_paths": ["data.users", "data.users[0].id", ...],
+ *     "body_preview": "前 2000 字符...",
+ *     "is_json": true
+ *   }
+ * }
+ */
+#[derive(Debug, Serialize)]
+pub struct ResponseAnalysis {
+    /** JSON 路径列表（仅对 JSON 响应有效） */
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub json_paths: Vec<String>,
+    /** 响应体前 2000 字符摘要 */
+    pub body_preview: String,
+    /** 响应体是否为有效 JSON */
+    pub is_json: bool,
+    /** JSON 值类型（object / array / string / number / boolean / null） */
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub json_type: Option<String>,
+    /** 顶层键列表（仅对 JSON 对象有效） */
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub top_keys: Vec<String>,
+}
+
+/**
+ * 分析 HTTP 响应体，提取结构化摘要
+ *
+ * 如果响应体是 JSON，递归提取所有 JSON 路径及类型。
+ * 无论是否 JSON，都返回前 2000 字符的 body_preview。
+ */
+pub fn analyze_response(body: &str) -> ResponseAnalysis {
+    let body_preview = if body.len() > 2000 {
+        format!("{}...（共 {} 字符）", &body[..2000], body.len())
+    } else {
+        body.to_string()
+    };
+
+    match serde_json::from_str::<serde_json::Value>(body) {
+        Ok(val) => {
+            let mut paths = Vec::new();
+            let json_type = json_value_type_name(&val);
+            let top_keys = extract_top_keys(&val);
+            extract_json_paths(&val, "", &mut paths);
+            ResponseAnalysis {
+                json_paths: paths,
+                body_preview,
+                is_json: true,
+                json_type: Some(json_type),
+                top_keys,
+            }
+        }
+        Err(_) => ResponseAnalysis {
+            json_paths: vec![],
+            body_preview,
+            is_json: false,
+            json_type: None,
+            top_keys: vec![],
+        },
+    }
+}
+
+/** 获取 JSON 值的类型名称 */
+fn json_value_type_name(val: &serde_json::Value) -> String {
+    match val {
+        serde_json::Value::Null => "null".to_string(),
+        serde_json::Value::Bool(_) => "boolean".to_string(),
+        serde_json::Value::Number(_) => "number".to_string(),
+        serde_json::Value::String(_) => "string".to_string(),
+        serde_json::Value::Array(_) => "array".to_string(),
+        serde_json::Value::Object(_) => "object".to_string(),
+    }
+}
+
+/** 提取 JSON 对象的顶层键列表 */
+fn extract_top_keys(val: &serde_json::Value) -> Vec<String> {
+    match val {
+        serde_json::Value::Object(map) => map.keys().cloned().collect(),
+        _ => vec![],
+    }
+}
+
+/**
+ * 递归提取 JSON 路径
+ *
+ * 从根节点开始遍历 JSON 树，收集所有叶子节点和数组元素的路径。
+ * 例如：{"data": {"users": [{"id": 1, "name": "Alice"}]}}
+ * 生成路径：
+ *   data
+ *   data.users
+ *   data.users[0]
+ *   data.users[0].id
+ *   data.users[0].name
+ */
+fn extract_json_paths(val: &serde_json::Value, prefix: &str, paths: &mut Vec<String>) {
+    match val {
+        serde_json::Value::Object(map) => {
+            // 只有非空对象才记录自身路径
+            if !prefix.is_empty() && !map.is_empty() {
+                paths.push(prefix.to_string());
+            }
+            for (key, child) in map {
+                let child_path = if prefix.is_empty() {
+                    key.clone()
+                } else {
+                    format!("{}.{}", prefix, key)
+                };
+                extract_json_paths(child, &child_path, paths);
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            if arr.is_empty() {
+                paths.push(format!("{}[]", prefix));
+            } else {
+                paths.push(format!("{}[0]（共 {} 项）", prefix, arr.len()));
+                // 只展开第一个元素作为示例（避免路径爆炸）
+                if let Some(first) = arr.first() {
+                    let example_path = format!("{}[0]", prefix);
+                    extract_json_paths(first, &example_path, paths);
+                }
+            }
+        }
+        _ => {
+            // 叶子节点
+            paths.push(prefix.to_string());
+        }
+    }
+}
