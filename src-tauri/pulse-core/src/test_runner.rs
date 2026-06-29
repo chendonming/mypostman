@@ -56,6 +56,9 @@ pub struct TestRequest {
     /** 设为 true 可临时跳过此请求 */
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub skip: Option<bool>,
+    /** 响应提取规则：从响应中提取 JSON 值并赋给变量 */
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub extract: Vec<crate::ExtractRule>,
 }
 
 // ============================================================
@@ -90,6 +93,9 @@ pub struct TestStepResult {
     pub assertion_results: Vec<AssertionResult>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    /** 从响应中提取的变量键值对（响应提取功能） */
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub extracted_variables: HashMap<String, String>,
 }
 
 /** 单条断言的验证结果 */
@@ -160,14 +166,18 @@ pub async fn run_test_script_internal(
     };
 
     // 步骤 2: 合并变量（激活环境 + 脚本变量，脚本优先）
-    let merged_vars = merge_variables(active_variables, &script.variables);
+    let mut merged_vars = merge_variables(active_variables, &script.variables);
 
-    // 步骤 3: 逐个执行请求
+    // 步骤 3: 逐个执行请求（变量池逐级传递）
     let mut steps = Vec::with_capacity(script.requests.len());
     let mut passed_steps = 0usize;
 
     for req_item in &script.requests {
         let step_result = execute_single_request(req_item, &merged_vars).await;
+
+        // 将提取的变量合并到变量池（后续请求可用 {{name}} 引用）
+        merge_extracted_variables(&mut merged_vars, &step_result.extracted_variables);
+
         if step_result.passed {
             passed_steps += 1;
         }
@@ -227,6 +237,76 @@ fn merge_variables(
         .collect()
 }
 
+// ============================================================
+// 响应提取：从响应 JSON 中提取值并存入变量池
+// ============================================================
+
+/**
+ * 执行提取规则，从响应中提取 JSON 字段值并返回变量映射
+ *
+ * 规则示例：
+ *   - source: "body.data"       → 提取整个 data 对象
+ *   - source: "body.data.token" → 提取 token 字段
+ *   - source: "body.title"      → 提取 title 字段
+ *
+ * @param response  HTTP 响应数据
+ * @param rules     提取规则列表
+ * @returns         变量名→值的映射（字符串形式）
+ */
+fn execute_extract_rules(
+    response: &ResponseData,
+    rules: &[crate::ExtractRule],
+) -> HashMap<String, String> {
+    let mut extracted = HashMap::new();
+
+    for rule in rules {
+        // 去除 "body." 前缀（如果存在）
+        let path = if let Some(p) = rule.source.strip_prefix("body.") {
+            p
+        } else {
+            &rule.source
+        };
+
+        // 尝试解析响应体为 JSON
+        if let Ok(json_value) = serde_json::from_str::<serde_json::Value>(&response.body) {
+            if let Some(found) = resolve_json_path(&json_value, path) {
+                let value_str = match found {
+                    serde_json::Value::String(s) => s.clone(),
+                    serde_json::Value::Null => String::new(),
+                    other => other.to_string(),
+                };
+                extracted.insert(rule.name.clone(), value_str);
+                continue;
+            }
+        }
+
+        // 路径不存在或解析失败：插入空字符串
+        extracted.insert(rule.name.clone(), String::new());
+    }
+
+    extracted
+}
+
+/**
+ * 将提取的变量合并到变量池中（提取变量的优先级最高）
+ */
+fn merge_extracted_variables(
+    variables: &mut Vec<EnvironmentVariable>,
+    extracted: &HashMap<String, String>,
+) {
+    for (key, value) in extracted {
+        if let Some(existing) = variables.iter_mut().find(|v| v.key == *key) {
+            existing.value = value.clone();
+        } else {
+            variables.push(EnvironmentVariable {
+                key: key.clone(),
+                value: value.clone(),
+                enabled: true,
+            });
+        }
+    }
+}
+
 /**
  * 执行单个请求并验证断言
  */
@@ -247,6 +327,7 @@ async fn execute_single_request(
             method: req_item.method.clone(),
             assertion_results: vec![],
             error: None,
+            extracted_variables: HashMap::new(),
         };
     }
 
@@ -287,6 +368,9 @@ async fn execute_single_request(
 
             let all_passed = assertion_results.iter().all(|a| a.passed);
 
+            // 执行响应提取（将 JSON 字段值存入变量）
+            let extracted = execute_extract_rules(&response, &req_item.extract);
+
             TestStepResult {
                 name: req_item.name.clone(),
                 passed: all_passed,
@@ -298,6 +382,7 @@ async fn execute_single_request(
                 method,
                 assertion_results,
                 error: None,
+                extracted_variables: extracted,
             }
         }
         Err(err) => TestStepResult {
@@ -311,6 +396,7 @@ async fn execute_single_request(
             method,
             assertion_results: vec![],
             error: Some(err),
+            extracted_variables: HashMap::new(),
         },
     }
 }
@@ -816,11 +902,15 @@ pub async fn run_test_on_requests(
     let total_steps = requests.len();
 
     // 合并变量：环境变量优先，集合变量作为默认值
-    let merged = merge_collection_variables(active_variables, collection_variables);
+    let mut merged = merge_collection_variables(active_variables, collection_variables);
 
     let mut steps = Vec::with_capacity(total_steps);
     for request in requests {
         let step = execute_request_item(request, &merged).await;
+
+        // 将提取的变量合并到变量池（后续请求可用 {{name}} 引用）
+        merge_extracted_variables(&mut merged, &step.extracted_variables);
+
         steps.push(step);
     }
 
@@ -895,6 +985,7 @@ async fn execute_request_item(
             method: req_item.method.clone(),
             assertion_results: vec![],
             error: None,
+            extracted_variables: HashMap::new(),
         };
     }
 
@@ -942,6 +1033,9 @@ async fn execute_request_item(
             let assertion_results = evaluate_assertions(&req_item.assertions, &response, duration_ms);
             let all_passed = assertion_results.iter().all(|a| a.passed);
 
+            // 执行响应提取（将 JSON 字段值存入变量）
+            let extracted = execute_extract_rules(&response, &req_item.extract);
+
             TestStepResult {
                 name: req_item.name.clone(),
                 passed: all_passed,
@@ -953,6 +1047,7 @@ async fn execute_request_item(
                 method,
                 assertion_results,
                 error: None,
+                extracted_variables: extracted,
             }
         }
         Err(err) => TestStepResult {
@@ -966,6 +1061,7 @@ async fn execute_request_item(
             method,
             assertion_results: vec![],
             error: Some(err),
+            extracted_variables: HashMap::new(),
         },
     }
 }

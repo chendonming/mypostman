@@ -9,6 +9,7 @@ import type {
   AuthType,
 } from "../types";
 import EnvironmentPanel from "./EnvironmentPanel";
+import CollectionVariablesPanel from "./CollectionVariablesPanel";
 import {
   DndContext,
   DragOverlay,
@@ -352,6 +353,8 @@ interface SidebarProps {
   onMoveCollection: (collectionId: string, targetIndex: number) => void;
   /** 更新集合的 Base URL */
   onUpdateCollectionBaseUrl: (collectionId: string, baseUrl: string) => void;
+  /** 更新集合的变量 */
+  onUpdateCollectionVariables: (collectionId: string, variables: Record<string, string>) => void;
   /* ── 环境变量 ── */
   environments: Environment[];
   activeEnvironmentId: string | null;
@@ -417,8 +420,10 @@ export default memo(function Sidebar({
   onRunTestScript,
   onOpenInNewTab,
   onOpenSettings,
+  onUpdateCollectionVariables,
 }: SidebarProps) {
   const [expandedAuthCol, setExpandedAuthCol] = useState<string | null>(null);
+  const [expandedVarsCol, setExpandedVarsCol] = useState<string | null>(null);
 
   // ── DnD 状态 ──
   const [activeDndId, setActiveDndId] = useState<string | null>(null);
@@ -749,6 +754,61 @@ export default memo(function Sidebar({
                                   />
                                 )}
                               </div>
+                            )}
+
+                            {/* 集合变量配置折叠行 */}
+                            <button
+                              onClick={() =>
+                                setExpandedVarsCol(
+                                  expandedVarsCol === col.id ? null : col.id,
+                                )
+                              }
+                              className="w-full flex items-center gap-2 pl-5 pr-3 py-1 text-[11px] text-pulse-text-muted hover:text-pulse-text-secondary hover:bg-pulse-hover transition-colors group"
+                            >
+                              <svg
+                                className="w-3.5 h-3.5 shrink-0"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                              >
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  strokeWidth={2}
+                                  d="M4 7v10c0 2 1 3 3 3h10c2 0 3-1 3-3V7M10 12h4"
+                                />
+                              </svg>
+                              <span className="flex-1 text-left">Variables</span>
+                              {col.variables && Object.keys(col.variables).length > 0 && (
+                                <span className="text-[10px] px-1 py-0.5 rounded bg-pulse-accent/10 text-pulse-accent">
+                                  {Object.keys(col.variables).length}
+                                </span>
+                              )}
+                              <svg
+                                className={`w-3 h-3 transition-transform ${
+                                  expandedVarsCol === col.id ? "rotate-90" : ""
+                                }`}
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                              >
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  strokeWidth={2}
+                                  d="M9 5l7 7-7 7"
+                                />
+                              </svg>
+                            </button>
+
+                            {/* 展开的变量编辑区域 */}
+                            {expandedVarsCol === col.id && (
+                              <CollectionVariablesPanel
+                                variables={col.variables ?? {}}
+                                onChange={(vars) =>
+                                  onUpdateCollectionVariables(col.id, vars)
+                                }
+                              />
                             )}
                           </div>,
                         );

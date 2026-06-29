@@ -11,6 +11,14 @@ export interface HeaderInput {
   enabled: boolean;
 }
 
+/** 响应提取规则：从响应 JSON 中提取值并赋给变量 */
+export interface ExtractRule {
+  /** 变量名（后续通过 {{name}} 引用） */
+  name: string;
+  /** JSON Path 来源，如 "body.data" 或 "body.data.token" */
+  source: string;
+}
+
 /** 请求各阶段耗时（毫秒），由 Rust 后端估算 */
 export interface TimingInfo {
   dns_lookup_ms: number;    // DNS 解析耗时
@@ -69,6 +77,8 @@ export interface RequestItem {
   assertions?: string[];
   /** 设为 true 可临时跳过此请求 */
   skip?: boolean;
+  /** 响应提取规则：从响应中提取 JSON 值并赋给变量 */
+  extract?: ExtractRule[];
 }
 
 /** 历史记录摘要（侧边栏列表用，不含完整请求详情） */

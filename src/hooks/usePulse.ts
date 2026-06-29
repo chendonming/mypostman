@@ -187,6 +187,41 @@ function createTabFromRequest(item: RequestItem, collectionId: string): TabState
 // - 新增 newTab / closeTab / switchTab / openInTab 函数
 // ============================================================
 
+/**
+ * 合并环境变量与 Collection 变量
+ * Collection 变量作为默认值，环境变量覆盖同名变量（环境优先）
+ */
+function mergeRequestVariables(
+  envVars: EnvironmentVariable[],
+  allCollections: Collection[],
+  collectionId?: string,
+): EnvironmentVariable[] {
+  const merged = new Map<string, string>();
+
+  // 1. Collection 变量作为基础（默认值）
+  if (collectionId) {
+    const collection = allCollections.find((c) => c.id === collectionId);
+    if (collection?.variables) {
+      for (const [key, value] of Object.entries(collection.variables)) {
+        merged.set(key, value);
+      }
+    }
+  }
+
+  // 2. 环境变量覆盖（环境优先）
+  for (const v of envVars) {
+    if (v.enabled) {
+      merged.set(v.key, v.value);
+    }
+  }
+
+  return Array.from(merged.entries()).map(([key, value]) => ({
+    key,
+    value,
+    enabled: true,
+  }));
+}
+
 export function usePulse() {
   // ── 标签页状态：核心数据结构 ──
   const [tabs, setTabs] = useState<TabState[]>(() => [createBlankTab()]);
@@ -892,6 +927,9 @@ export function usePulse() {
       const activeVars: EnvironmentVariable[] =
         activeEnv?.variables.filter((v) => v.enabled) ?? [];
 
+      // 合并 Collection 变量与环境变量（环境变量优先级更高）
+      const mergedVars = mergeRequestVariables(activeVars, collections, tabEditingRequest?.collectionId);
+
       let collectionBaseUrl = '';
       if (tabEditingRequest) {
         const col = collections.find((c) => c.id === tabEditingRequest.collectionId);
@@ -920,7 +958,7 @@ export function usePulse() {
           body: finalBody || null,
           content_type: tabContentType || null,
         },
-        variables: activeVars,
+        variables: mergedVars,
       });
 
       setTabs((prev) =>
@@ -1338,6 +1376,16 @@ export function usePulse() {
     );
   }, []);
 
+  /**
+   * 更新集合的变量
+   * 集合变量作为 {{key}} 替换的默认值（环境变量可覆盖）
+   */
+  const updateCollectionVariables = useCallback((collectionId: string, variables: Record<string, string>) => {
+    setCollections((prev) =>
+      prev.map((c) => (c.id === collectionId ? { ...c, variables } : c)),
+    );
+  }, []);
+
   const setActiveEnvironment = useCallback((id: string | null) => {
     setActiveEnvironmentId(id);
   }, []);
@@ -1658,6 +1706,7 @@ export function usePulse() {
     deleteCollection,
     updateCollectionAuth,
     updateCollectionBaseUrl,
+    updateCollectionVariables,
     moveRequest,
     moveCollection,
     editingCollectionName,

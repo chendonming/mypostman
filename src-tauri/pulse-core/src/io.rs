@@ -118,6 +118,9 @@ pub struct CollectionDocumentItem {
     /** 设为 true 可临时跳过此请求 */
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub skip: Option<bool>,
+    /** 响应提取规则列表：从响应中提取值存入变量 */
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub extract: Vec<crate::ExtractRule>,
 }
 
 /** 认证配置 */
@@ -176,6 +179,7 @@ pub fn collection_document_to_collection(doc: CollectionDocument) -> Collection 
             body_params: None,
             assertions: req.assertions,
             skip: req.skip,
+            extract: req.extract,
         }
     }).collect();
 
@@ -226,6 +230,7 @@ pub fn collection_to_collection_document(col: &Collection) -> CollectionDocument
                 }),
                 assertions: req.assertions.clone(),
                 skip: req.skip,
+                extract: req.extract.clone(),
             }
         }).collect(),
     }
@@ -520,6 +525,7 @@ pub fn collection_document_to_test_script(doc: &CollectionDocument) -> TestScrip
                 content_type: req.content_type.clone(),
                 assertions: req.assertions.clone(),
                 skip: req.skip,
+                extract: req.extract.clone(),
             }
         }).collect(),
     }

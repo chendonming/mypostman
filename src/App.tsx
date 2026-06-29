@@ -225,6 +225,7 @@ export default function App() {
         onMoveRequest={state.moveRequest}
         onMoveCollection={state.moveCollection}
         onUpdateCollectionBaseUrl={state.updateCollectionBaseUrl}
+        onUpdateCollectionVariables={state.updateCollectionVariables}
         /* ── 环境变量 ── */
         environments={state.environments}
         activeEnvironmentId={state.activeEnvironmentId}
