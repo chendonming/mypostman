@@ -2,8 +2,14 @@
 // 递归渲染 JSON 结构，支持任意层级折叠/展开
 // 折叠状态使用路径字符串管理，默认全部展开
 // 点击箭头按钮 ▶/▼ 切换折叠状态
+//
+// 优化：大数组/对象（>50 项）自动折叠，避免渲染数千个 DOM 节点导致的卡顿
+// 使用 React.memo 防止标签页切换时的不必要重渲染
 
-import { useCallback, useState } from "react";
+import { useCallback, useState, useRef, useEffect, memo } from "react";
+
+/** 自动折叠阈值：超过此数量的数组/对象根节点默认折叠 */
+const AUTO_COLLAPSE_THRESHOLD = 50;
 
 /** 渲染 JSON 原始值（null / boolean / number / string） */
 function JsonPrimitive({ value }: { value: unknown }) {
@@ -51,7 +57,7 @@ interface TreeNodeProps {
 }
 
 /** 递归渲染单个 JSON 节点 */
-function TreeNode({
+const TreeNode = memo(function TreeNode({
   path,
   value,
   depth,
@@ -175,24 +181,79 @@ function TreeNode({
       </div>
     </>
   );
+});
+
+/**
+ * 递归遍历 JSON 树，将所有超阈值的大数组/对象路径加入自动折叠集合。
+ * 与仅折叠根节点的旧版本不同，此版本会潜入子节点：
+ * 当用户展开父节点时，子节点中的大数据默认保持折叠，避免渲染卡顿。
+ */
+function computeAutoCollapsed(
+  body: string,
+  contentType?: string | null
+): Set<string> {
+  if (!body || !contentType?.includes("json")) return new Set();
+  try {
+    const parsed = JSON.parse(body);
+    const auto = new Set<string>();
+
+    function walk(path: string, value: unknown): void {
+      if (typeof value !== "object" || value === null) return;
+
+      const isArray = Array.isArray(value);
+      const count = isArray
+        ? (value as unknown[]).length
+        : Object.keys(value as Record<string, unknown>).length;
+
+      if (count > AUTO_COLLAPSE_THRESHOLD) {
+        auto.add(path);
+        // 继续递归遍历子节点，确保深层大数据也被折叠
+      }
+
+      if (isArray) {
+        (value as unknown[]).forEach((v, i) => walk(`${path}[${i}]`, v));
+      } else {
+        Object.entries(value as Record<string, unknown>).forEach(([k, v]) =>
+          walk(`${path}.${k}`, v)
+        );
+      }
+    }
+
+    walk("$", parsed);
+    return auto;
+  } catch {
+    return new Set();
+  }
 }
 
 /** ===== JSON 树形查看组件 =====
  *
  * 接收响应体和 Content-Type，自动判断是否需要解析。
  * JSON 内容以可折叠树形展示；非 JSON / 无效 JSON 原样输出。
+ * 大数组/对象（>50 项）首次渲染时自动折叠，避免卡顿。
  *
  * @param body - 响应体文本
  * @param contentType - Content-Type 头（用于判断是否为 JSON）
  */
-export default function JsonViewer({
+export default memo(function JsonViewer({
   body,
   contentType,
 }: {
   body: string;
   contentType?: string | null;
 }) {
-  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
+  const [collapsed, setCollapsed] = useState<Set<string>>(() =>
+    computeAutoCollapsed(body, contentType),
+  );
+
+  // body 变化时重置折叠状态（如标签页切换），自动折叠大数据
+  const prevBodyRef = useRef(body);
+  useEffect(() => {
+    if (body !== prevBodyRef.current) {
+      prevBodyRef.current = body;
+      setCollapsed(computeAutoCollapsed(body, contentType));
+    }
+  }, [body, contentType]);
 
   const toggle = useCallback((path: string) => {
     setCollapsed((prev) => {
@@ -248,4 +309,4 @@ export default function JsonViewer({
       />
     </div>
   );
-}
+});
