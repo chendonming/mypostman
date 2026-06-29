@@ -1,0 +1,106 @@
+# ============================================================
+# Pulse 自测脚本 —— Mock 服务器全覆盖测试
+#
+# 要求：以 `--features mock-server` 启动应用
+#   npm run tauri:mock
+# 然后通过 UI 的 Test Script 功能运行此文件
+# ============================================================
+
+name: "Mock Server Self-Test"
+description: "Verifies all mock server endpoints are functioning correctly"
+
+# 脚本级变量（优先级高于当前激活环境中的同名变量）
+variables:
+  base_url: "http://127.0.0.1:18789"
+
+requests:
+  # ── GET 端点 ──
+  - name: "GET - Fetch 5 mock items"
+    method: GET
+    url: "{{base_url}}/mock/api/get/5"
+    assertions:
+      - "status == 200"
+      - "body.success == true"
+      - "body.total == 5"
+      - "body.items[0].id == 1"
+      - "body.items[0].name == 'Item 1'"
+      - "body.items[0].profile.address.city == 'Beijing'"
+      - "headers.X-Mock-Server == 'true'"
+      - "duration_ms < 10000"
+
+  - name: "GET - Edge: count=0 returns empty array"
+    method: GET
+    url: "{{base_url}}/mock/api/get/0"
+    assertions:
+      - "status == 200"
+      - "body.total == 0"
+      - "body.items == []"
+
+  - name: "GET - Edge: count exceeds limit returns 400"
+    method: GET
+    url: "{{base_url}}/mock/api/get/10001"
+    assertions:
+      - "status == 400"
+      - "body.error != null"
+      - "body.max_allowed == 10000"
+
+  # ── POST 端点 ──
+  - name: "POST - Create new data"
+    method: POST
+    url: "{{base_url}}/mock/api/data"
+    headers:
+      Content-Type: "application/json"
+    body: '{"name": "test", "value": 42}'
+    assertions:
+      - "status == 200"
+      - "body.success == true"
+      - "body.status == 'created'"
+      - "body.id == 10001"
+      - "body.received.name == 'test'"
+      - "duration_ms < 5000"
+
+  - name: "POST - Edge: empty body returns 400"
+    method: POST
+    url: "{{base_url}}/mock/api/data"
+    assertions:
+      - "status == 400"
+      - "body.error != null"
+
+  # ── PUT 端点 ──
+  - name: "PUT - Update data by ID"
+    method: PUT
+    url: "{{base_url}}/mock/api/data/42"
+    headers:
+      Content-Type: "application/json"
+    body: '{"updated": true}'
+    assertions:
+      - "status == 200"
+      - "body.status == 'updated'"
+      - "body.id == 42"
+      - "body.updated.updated == true"
+
+  - name: "PUT - Edge: id=0 returns 400"
+    method: PUT
+    url: "{{base_url}}/mock/api/data/0"
+    headers:
+      Content-Type: "application/json"
+    body: "{}"
+    assertions:
+      - "status == 400"
+      - "body.error != null"
+
+  # ── DELETE 端点 ──
+  - name: "DELETE - Delete data by ID"
+    method: DELETE
+    url: "{{base_url}}/mock/api/data/99"
+    assertions:
+      - "status == 200"
+      - "body.status == 'deleted'"
+      - "body.id == 99"
+
+  - name: "DELETE - Edge: id=0 returns 400"
+    method: DELETE
+    url: "{{base_url}}/mock/api/data/0"
+    assertions:
+      - "status == 400"
+      - "body.error != null"

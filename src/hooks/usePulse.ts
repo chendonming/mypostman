@@ -17,6 +17,7 @@ import type {
   ImportExportStrategy,
   ImportPreview,
   ImportResult,
+  TestRunResult,
 } from "../types";
 import type { ToastItem } from "../components/Toast";
 
@@ -1251,6 +1252,72 @@ export function usePulse() {
   }, [addToast, closeExportDialog]);
 
   // ============================================================
+  // Test Script 状态管理
+  // ============================================================
+
+  const [testScriptDialogVisible, setTestScriptDialogVisible] = useState(false);
+  const [testRunResult, setTestRunResult] = useState<TestRunResult | null>(null);
+  const [isTestRunning, setIsTestRunning] = useState(false);
+  const [testRunError, setTestRunError] = useState<string | null>(null);
+  /** 已选择的测试脚本文件路径 */
+  const [pendingTestScriptPath, setPendingTestScriptPath] = useState<string | null>(null);
+  /** 已选择的文件名（用于显示） */
+  const [testScriptFileName, setTestScriptFileName] = useState("");
+
+  /** 打开测试脚本对话框 */
+  const openTestScriptDialog = useCallback(() => {
+    setTestRunResult(null);
+    setTestRunError(null);
+    setPendingTestScriptPath(null);
+    setTestScriptFileName("");
+    setTestScriptDialogVisible(true);
+  }, []);
+
+  /** 关闭测试脚本对话框 */
+  const closeTestScriptDialog = useCallback(() => {
+    setTestScriptDialogVisible(false);
+    setTestRunResult(null);
+    setTestRunError(null);
+  }, []);
+
+  /** 选择测试脚本文件（调用 Rust 原生文件选择器） */
+  const handlePickTestScript = useCallback(async () => {
+    try {
+      setTestRunError(null);
+      const path = await invoke<string | null>("pick_test_script_file", {});
+      if (!path) return; // 用户取消
+      setTestScriptFileName(path.split(/[/\\]/).pop() || path);
+      setPendingTestScriptPath(path);
+      setTestRunResult(null);
+    } catch (e) {
+      setTestRunError(typeof e === "string" ? e : "Failed to select file");
+    }
+  }, []);
+
+  /** 执行测试脚本 */
+  const handleRunTestScript = useCallback(async () => {
+    if (!pendingTestScriptPath) return;
+    setIsTestRunning(true);
+    setTestRunResult(null);
+    setTestRunError(null);
+    try {
+      // 传入当前激活环境的变量，供 test_runner 合并使用
+      const activeEnv = environments.find((e) => e.id === activeEnvironmentId);
+      const activeVars: EnvironmentVariable[] =
+        activeEnv?.variables.filter((v) => v.enabled) ?? [];
+      const result = await invoke<TestRunResult>("run_test_script", {
+        path: pendingTestScriptPath,
+        variables: activeVars,
+      });
+      setTestRunResult(result);
+    } catch (e) {
+      setTestRunError(typeof e === "string" ? e : "Test run failed");
+    } finally {
+      setIsTestRunning(false);
+    }
+  }, [pendingTestScriptPath, environments, activeEnvironmentId]);
+
+  // ============================================================
   // 导出状态和方法（组件通过 props 接收）
   // ============================================================
 
@@ -1352,5 +1419,16 @@ export function usePulse() {
     handleConfirmImport,
     handleExport,
     refreshData,
+    /* ── Test Script ── */
+    testScriptDialogVisible,
+    openTestScriptDialog,
+    closeTestScriptDialog,
+    testScriptFileName,
+    pendingTestScriptPath,
+    isTestRunning,
+    testRunResult,
+    testRunError,
+    handlePickTestScript,
+    handleRunTestScript,
   };
 }

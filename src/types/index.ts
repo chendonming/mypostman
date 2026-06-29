@@ -171,3 +171,42 @@ export interface ImportResult {
   environments_count: number;
   active_id_changed: boolean;
 }
+
+// ============================================================
+// Test Script 相关类型定义
+// ============================================================
+
+/** 单条断言的验证结果 */
+export interface AssertionResult {
+  expression: string;
+  passed: boolean;
+  actual_value: string | null;
+  expected_value: string | null;
+  error: string | null;
+}
+
+/** 单个请求的执行结果 */
+export interface TestStepResult {
+  name: string;
+  passed: boolean;
+  status: number;
+  status_text: string;
+  duration_ms: number;
+  size_label: string;
+  url: string;
+  method: string;
+  assertion_results: AssertionResult[];
+  error: string | null;
+}
+
+/** 一次测试运行的完整结果 */
+export interface TestRunResult {
+  script_name: string;
+  started_at: string;
+  completed_at: string;
+  total_steps: number;
+  passed_steps: number;
+  failed_steps: number;
+  steps: TestStepResult[];
+  error: string | null;
+}

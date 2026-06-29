@@ -11,6 +11,7 @@ import SaveDialog from "./components/SaveDialog";
 import ConfirmDialog from "./components/ConfirmDialog";
 import ImportDialog from "./components/ImportDialog";
 import ExportDialog from "./components/ExportDialog";
+import TestScriptDialog from "./components/TestScriptDialog";
 import ToastContainer from "./components/Toast";
 
 /**
@@ -166,6 +167,7 @@ export default function App() {
         onRemoveVariable={state.removeVariable}
         onImport={state.openImportDialog}
         onExport={state.openExportDialog}
+        onRunTestScript={state.openTestScriptDialog}
       />
 
       <main className="flex-1 flex flex-col min-w-0">
@@ -345,6 +347,19 @@ export default function App() {
         environmentsCount={state.environments.length}
         onExport={state.handleExport}
         onCancel={state.closeExportDialog}
+      />
+
+      {/* Test Script 对话框 */}
+      <TestScriptDialog
+        visible={state.testScriptDialogVisible}
+        fileName={state.testScriptFileName}
+        hasPending={state.pendingTestScriptPath !== null}
+        isRunning={state.isTestRunning}
+        result={state.testRunResult}
+        error={state.testRunError}
+        onPickFile={state.handlePickTestScript}
+        onRun={state.handleRunTestScript}
+        onCancel={state.closeTestScriptDialog}
       />
 
       {/* Toast 通知容器 */}

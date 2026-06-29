@@ -14,6 +14,9 @@ mod mock_server;
 // ===== 导入/导出核心模块（纯 Rust，无 Tauri 依赖，CLI 可复用） =====
 mod io;
 
+// ===== Test Script 执行模块 =====
+mod test_runner;
+
 // ============================================================
 // 常量定义
 // ============================================================
@@ -170,7 +173,7 @@ fn now_millis() -> u64 {
  * 环境变量替换：将字符串中的 {{key}} 替换为对应的变量值
  * 例如：{{base_url}}/api/users → https://example.com/api/users
  */
-fn substitute_variables(input: &str, variables: &[EnvironmentVariable]) -> String {
+pub(crate) fn substitute_variables(input: &str, variables: &[EnvironmentVariable]) -> String {
     let mut result = input.to_string();
     for var in variables {
         if var.enabled {
@@ -186,96 +189,67 @@ fn substitute_variables(input: &str, variables: &[EnvironmentVariable]) -> Strin
 // ============================================================
 
 /**
- * send_request：核心 HTTP 命令
+ * execute_http_request：纯 HTTP 执行函数（不含日志/事件）
  *
- * 1. 对 URL/请求头/请求体 执行 {{variable}} 环境变量替换
- * 2. 通过 reqwest 发送 HTTP 请求（60 秒超时）
- * 3. 测量各阶段耗时（TTFB、下载等；DNS/TCP/TLS 按百分比估算）
- * 4. 构建日志条目，存入 Rust 侧 LogStore
- * 5. 通过 Tauri Events 发送 http-log 事件，供日志窗口实时更新
+ * 发送 HTTP 请求并返回响应数据，不涉及日志存储或事件通知。
+ * 调用方需确保 input 中的 URL/headers/body 已完成 {{variable}} 替换。
+ * 供 send_request（带日志）和 test_runner（批量测试）共用。
  */
-#[tauri::command]
-async fn send_request(app: AppHandle, input: RequestInput, variables: Vec<EnvironmentVariable>) -> Result<ResponseData, String> {
+pub async fn execute_http_request(input: RequestInput) -> Result<ResponseData, String> {
     let full_start = Instant::now();
-    let method = input.method.to_uppercase();
 
-    // 步骤 1: 变量替换 —— 将 {{key}} 模式替换为实际值
-    let url = substitute_variables(&input.url, &variables);
-    let substituted_headers: Vec<HeaderInput> = input
-        .headers
-        .iter()
-        .map(|h| HeaderInput {
-            key: h.key.clone(),
-            value: substitute_variables(&h.value, &variables),
-            enabled: h.enabled,
-        })
-        .collect();
-    let body = input
-        .body
-        .as_ref()
-        .map(|b| substitute_variables(b, &variables));
-    let content_type = input
-        .content_type
-        .as_ref()
-        .map(|ct| substitute_variables(ct, &variables));
-
-    // 步骤 2: 构建 HTTP 客户端（60 秒超时）
+    // 构建 HTTP 客户端（60 秒超时）
     let client = Client::builder()
         .timeout(Duration::from_secs(60))
         .build()
         .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
 
-    let req_method = method
+    let req_method = input
+        .method
         .parse::<reqwest::Method>()
-        .map_err(|_| format!("Invalid HTTP method: {}", method))?;
+        .map_err(|_| format!("Invalid HTTP method: {}", input.method))?;
 
-    let mut req = client.request(req_method, &url);
+    let mut req = client.request(req_method, &input.url);
 
-    // 步骤 3: 装配请求头
-    let mut headers = HeaderMap::new();
-    for h in &substituted_headers {
+    // 装配请求头
+    let mut headers_map = HeaderMap::new();
+    for h in &input.headers {
         if h.enabled && !h.key.trim().is_empty() {
             if let (Ok(n), Ok(v)) = (
                 HeaderName::from_bytes(h.key.trim().as_bytes()),
                 HeaderValue::from_str(h.value.trim()),
             ) {
-                headers.insert(n, v);
+                headers_map.insert(n, v);
             }
         }
     }
 
     // 如果 Content-Type 尚未设置且参数中提供了，则补充
-    if let Some(ct) = &content_type {
-        if !headers.contains_key("content-type") && !ct.is_empty() {
+    if let Some(ct) = &input.content_type {
+        if !headers_map.contains_key("content-type") && !ct.is_empty() {
             if let Ok(v) = HeaderValue::from_str(ct) {
-                headers.insert("content-type", v);
+                headers_map.insert("content-type", v);
             }
         }
     }
 
-    req = req.headers(headers);
+    req = req.headers(headers_map);
 
-    // 步骤 4: 装配请求体
-    if let Some(body_str) = &body {
+    // 装配请求体
+    if let Some(body_str) = &input.body {
         if !body_str.is_empty() {
             req = req.body(body_str.clone());
         }
     }
 
-    // 记录原始请求信息（用于日志）
-    let request_headers: Vec<HeaderInput> = substituted_headers.clone();
-    let request_body: Option<String> = body.as_ref().map(|b| truncate_body(b));
-
-    // 步骤 5: 发送请求并测量耗时
+    // 发送请求并测量耗时
     let before_send = Instant::now();
     let resp_result = req.send().await;
 
     let ttfb_elapsed = before_send.elapsed();
 
-    let mut log_response_headers: HashMap<String, String> = HashMap::new();
-
-    // 步骤 6: 处理响应
-    let result: Result<ResponseData, String> = match resp_result {
+    // 处理响应
+    match resp_result {
         Ok(resp) => {
             let status = resp.status().as_u16();
             let status_text = resp
@@ -290,7 +264,6 @@ async fn send_request(app: AppHandle, input: RequestInput, variables: Vec<Enviro
                 .iter()
                 .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("").to_string()))
                 .collect();
-            log_response_headers = resp_headers.clone();
 
             let content_type = resp_headers.get("content-type").cloned();
 
@@ -317,7 +290,6 @@ async fn send_request(app: AppHandle, input: RequestInput, variables: Vec<Enviro
             let download_ms = (total_ms - ttfb_ms).max(0.1);
 
             // timing 估算：将 TTFB 的 35% 估算为连接时间，再按 20%/30%/50% 分给 DNS/TCP/TLS
-            // 注：reqwest 不提供原生分阶段计时，此处为近似值
             let (dns_ms, tcp_ms, tls_ms) = if ttfb_ms > 10.0 {
                 let connection = ttfb_ms * 0.35;
                 (connection * 0.2, connection * 0.3, connection * 0.5)
@@ -346,7 +318,6 @@ async fn send_request(app: AppHandle, input: RequestInput, variables: Vec<Enviro
             })
         }
         Err(e) => {
-            // 根据错误类型给出中文友好的错误消息
             let msg = if e.is_timeout() {
                 "Request timed out after 60 seconds".to_string()
             } else if e.is_connect() {
@@ -358,9 +329,57 @@ async fn send_request(app: AppHandle, input: RequestInput, variables: Vec<Enviro
             };
             Err(msg)
         }
-    };
+    }
+}
 
-    // 步骤 7: 构建日志条目（成功/失败统一记录）
+/**
+ * send_request：核心 HTTP 命令（带日志和事件通知）
+ *
+ * 1. 对 URL/请求头/请求体 执行 {{variable}} 环境变量替换
+ * 2. 调用 execute_http_request 发送请求
+ * 3. 构建日志条目，存入 Rust 侧 LogStore
+ * 4. 通过 Tauri Events 发送 http-log 事件
+ */
+#[tauri::command]
+async fn send_request(app: AppHandle, input: RequestInput, variables: Vec<EnvironmentVariable>) -> Result<ResponseData, String> {
+    let full_start = Instant::now();
+    let method = input.method.to_uppercase();
+
+    // 步骤 1: 变量替换 —— 将 {{key}} 模式替换为实际值
+    let url = substitute_variables(&input.url, &variables);
+    let substituted_headers: Vec<HeaderInput> = input
+        .headers
+        .iter()
+        .map(|h| HeaderInput {
+            key: h.key.clone(),
+            value: substitute_variables(&h.value, &variables),
+            enabled: h.enabled,
+        })
+        .collect();
+    let body = input
+        .body
+        .as_ref()
+        .map(|b| substitute_variables(b, &variables));
+    let content_type = input
+        .content_type
+        .as_ref()
+        .map(|ct| substitute_variables(ct, &variables));
+
+    // 记录原始请求信息（用于日志）
+    let request_headers: Vec<HeaderInput> = substituted_headers.clone();
+    let request_body: Option<String> = body.as_ref().map(|b| truncate_body(b));
+
+    // 步骤 2: 调用公共执行函数发送 HTTP 请求
+    let exec_input = RequestInput {
+        method: method.clone(),
+        url: url.clone(),
+        headers: substituted_headers,
+        body,
+        content_type,
+    };
+    let result = execute_http_request(exec_input).await;
+
+    // 步骤 3: 构建日志条目（成功/失败统一记录）
     let total_ms = full_start.elapsed().as_secs_f64() * 1000.0;
     let now = now_millis();
     let log_id = next_log_id();
@@ -371,7 +390,7 @@ async fn send_request(app: AppHandle, input: RequestInput, variables: Vec<Enviro
             timestamp: now,
             request_headers: request_headers.clone(),
             request_body: request_body.clone(),
-            response_headers: log_response_headers.clone(),
+            response_headers: data.headers.clone(),
             method,
             url,
             status: data.status,
@@ -398,14 +417,14 @@ async fn send_request(app: AppHandle, input: RequestInput, variables: Vec<Enviro
         },
     };
 
-    // 步骤 8: 持久化日志到 Rust 托管状态
+    // 步骤 4: 持久化日志到 Rust 托管状态
     if let Some(store) = app.try_state::<Mutex<LogStore>>() {
         if let Ok(mut store) = store.lock() {
             store.push(log_entry.clone());
         }
     }
 
-    // 步骤 9: 通过 Tauri Events 实时推送日志条目
+    // 步骤 5: 通过 Tauri Events 实时推送日志条目
     let _ = app.emit("http-log", &log_entry);
 
     result
@@ -659,9 +678,9 @@ async fn export_data_to_file(app: AppHandle, format: String, collection_ids: Vec
 
 /**
  * 获取当前时间的 ISO 8601 格式字符串
- * 不使用 chrono crate，保持最小依赖
+ * pub(crate) 供 test_runner 模块使用
  */
-fn chrono_now_iso() -> String {
+pub(crate) fn chrono_now_iso() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -839,6 +858,41 @@ async fn pick_import_file(app: AppHandle) -> Result<Option<String>, String> {
     Ok(file_path.map(|p| p.to_string()))
 }
 
+// ============================================================
+// Test Script 相关 Tauri 命令
+// ============================================================
+
+/** 弹出原生文件选择器，选取 .yaml/.yml 测试脚本文件 */
+#[tauri::command]
+async fn pick_test_script_file(app: AppHandle) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+    let file_path = app
+        .dialog()
+        .file()
+        .add_filter("Test Script", &["yaml", "yml"])
+        .blocking_pick_file();
+
+    Ok(file_path.map(|p| p.to_string()))
+}
+
+/**
+ * run_test_script：执行 YAML 测试脚本
+ *
+ * 1. 读取 YAML 文件
+ * 2. 调用 test_runner 模块解析并执行
+ * 3. 返回 TestRunResult（含每步状态和断言结果）
+ */
+#[tauri::command]
+async fn run_test_script(
+    path: String,
+    variables: Vec<EnvironmentVariable>,
+) -> Result<test_runner::TestRunResult, String> {
+    let content = std::fs::read_to_string(&path)
+        .map_err(|e| format!("无法读取文件: {}", e))?;
+
+    Ok(test_runner::run_test_script_internal(&content, &variables).await)
+}
+
 /**
  * 应用入口
  *
@@ -869,6 +923,8 @@ pub fn run() {
             preview_import,
             import_data_from_file,
             pick_import_file,
+            pick_test_script_file,
+            run_test_script,
         ])
         .setup(|app| {
             // 创建独立的日志查看窗口（标签为 "logs"）

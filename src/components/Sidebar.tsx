@@ -356,6 +356,8 @@ interface SidebarProps {
   /* ── 导入/导出 ── */
   onImport: () => void;
   onExport: () => void;
+  /* ── 测试脚本 ── */
+  onRunTestScript: () => void;
 }
 
 // ============================================================
@@ -394,6 +396,7 @@ export default memo(function Sidebar({
   onRemoveVariable,
   onImport,
   onExport,
+  onRunTestScript,
 }: SidebarProps) {
   const [expandedAuthCol, setExpandedAuthCol] = useState<string | null>(null);
 
@@ -833,8 +836,17 @@ export default memo(function Sidebar({
         )}
       </div>
 
-      {/* 导入/导出操作栏（固定底部） */}
+      {/* 测试脚本 / 导入/导出操作栏（固定底部） */}
       <div className="shrink-0 border-t border-pulse-border px-2 py-2 flex gap-1.5">
+        <button
+          onClick={onRunTestScript}
+          className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md text-xs text-pulse-text-muted hover:text-pulse-text-secondary hover:bg-pulse-hover transition-colors"
+        >
+          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+          </svg>
+          Test
+        </button>
         <button
           onClick={onImport}
           className="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md text-xs text-pulse-text-muted hover:text-pulse-text-secondary hover:bg-pulse-hover transition-colors"
