@@ -112,6 +112,37 @@
   .focus-ring {
     @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-pulse-accent/60 focus-visible:ring-offset-1 focus-visible:ring-offset-pulse-surface;
   }
+
+  /* ============================================================
+   * 面板拖拽分隔条
+   * 用于 react-resizable-panels 的 PanelResizeHandle
+   * ============================================================ */
+
+  /* 垂直拖拽分隔条（Sidebar 和主区域之间） */
+  .resize-handle-horizontal {
+    position: relative;
+    width: 4px;
+    cursor: col-resize;
+    background: transparent;
+    transition: background 0.15s ease;
+    flex-shrink: 0;
+  }
+  .resize-handle-horizontal:hover {
+    background: #F0B429;
+  }
+
+  /* 水平拖拽分隔条（RequestPanel 和 ResponsePanel 之间） */
+  .resize-handle-vertical {
+    position: relative;
+    height: 4px;
+    cursor: row-resize;
+    background: transparent;
+    transition: background 0.15s ease;
+    flex-shrink: 0;
+  }
+  .resize-handle-vertical:hover {
+    background: #F0B429;
+  }
 }
 
 /* 标签页顶部脉冲光晕动画——呼应产品名 "Pulse" */

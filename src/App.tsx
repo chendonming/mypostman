@@ -16,19 +16,25 @@ import TestScriptDialog from "./components/TestScriptDialog";
 import SettingsDialog from "./components/SettingsDialog";
 import { FONT_FAMILY_MAP, FONT_SIZE_PX_MAP } from "./components/SettingsDialog";
 import ToastContainer from "./components/Toast";
+import {
+  Panel,
+  Group as PanelGroup,
+  Separator as PanelResizeHandle,
+  type Layout,
+} from "react-resizable-panels";
 
 /**
  * 应用根组件
  *
- * 布局结构（flex 纵向 + 横向）：
+ * 布局结构（PanelGroup 双层拖拽布局）：
  * ┌──────────┬──────────────────────────────────────────────┐
  * │          │  TabBar（标签栏）                              │
  * │  Sidebar ├──────────────────────────────────────────────┤
- * │  (240px) │  RequestPanel（请求面板）                      │
+ * │  (拖拽)   │  RequestPanel（请求面板，可上下拖拽）          │
  * │          ├──────────────────────────────────────────────┤
  * │          │  ResponsePanel（响应面板）                     │
- * │          │                                              │
  * └──────────┴──────────────────────────────────────────────┘
+ *     ↕ 水平拖拽分隔条              ↕ 垂直拖拽分隔条
  *
  * 所有状态和回调均由 usePulse() hook 单点管理，通过 props 下发给子组件。
  * 多标签页架构：tabs[] 数组存储所有标签页状态，activeTabId 标记当前激活页。
@@ -38,6 +44,26 @@ export default function App() {
   const engineRef = useRef<ShortcutEngine | null>(null);
   const [editorOpen, setEditorOpen] = useState(false);
   const [flashCommand, setFlashCommand] = useState<string | null>(null);
+
+  // 水平布局变化时持久化侧边栏宽度
+  const onHorizontalLayoutChanged = useCallback(
+    (layout: Layout) => {
+      if (layout["sidebar-panel"]) {
+        state.updateSettings({ sidebarWidth: layout["sidebar-panel"] });
+      }
+    },
+    [state.updateSettings],
+  );
+
+  // 垂直布局变化时持久化请求面板高度
+  const onVerticalLayoutChanged = useCallback(
+    (layout: Layout) => {
+      if (layout["request-panel"]) {
+        state.updateSettings({ requestPanelHeight: layout["request-panel"] });
+      }
+    },
+    [state.updateSettings],
+  );
 
   // 智能加载：如果请求已在一个标签页中打开，切换到该标签页而非重复加载
   const smartLoadCollectionRequest = useCallback(
@@ -208,102 +234,147 @@ export default function App() {
         fontSize: state.settingsLoaded ? `${FONT_SIZE_PX_MAP[state.settings.fontSize] || 14}px` : undefined,
       }}
     >
-      <Sidebar
-        collections={state.collections}
-        history={state.history}
-        activeTab={state.sidebarTab}
-        onTabChange={state.setSidebarTab}
-        onLoadHistory={state.loadFromHistory}
-        onLoadRequest={smartLoadCollectionRequest}
-        /* ── 新建请求 & 集合管理 ── */
-        onNewRequest={state.newTab}
-        onDeleteRequest={state.deleteCollectionRequest}
-        onRenameRequest={state.renameCollectionRequest}
-        onAddCollection={state.addCollection}
-        onDeleteCollection={state.deleteCollection}
-        onUpdateCollectionAuth={state.updateCollectionAuth}
-        onMoveRequest={state.moveRequest}
-        onMoveCollection={state.moveCollection}
-        onUpdateCollectionBaseUrl={state.updateCollectionBaseUrl}
-        onUpdateCollectionVariables={state.updateCollectionVariables}
-        /* ── 环境变量 ── */
-        environments={state.environments}
-        activeEnvironmentId={state.activeEnvironmentId}
-        onAddEnvironment={state.addEnvironment}
-        onDeleteEnvironment={state.deleteEnvironment}
-        onRenameEnvironment={state.renameEnvironment}
-        onSetActiveEnvironment={state.setActiveEnvironment}
-        onAddVariable={state.addVariable}
-        onUpdateVariable={state.updateVariable}
-        onRemoveVariable={state.removeVariable}
-        onImport={state.openImportDialog}
-        onExport={state.openExportDialog}
-        onRunTestScript={state.openTestScriptDialog}
-        /* ── 新标签页打开请求 ── */
-        onOpenInNewTab={openInNewTab}
-        /* ── 打开设置面板 ── */
-        onOpenSettings={state.openSettingsDialog}
-      />
-
-      <main className="flex-1 flex flex-col min-w-0">
-        {/* 标签栏 */}
-        <TabBar
-          tabs={state.tabs}
-          activeTabId={state.activeTabId}
-          onSwitchTab={state.switchTab}
-          onCloseTab={state.closeTab}
-          onNewTab={state.newTab}
-        />
-
-        <RequestPanel
-          method={state.method}
-          onMethodChange={state.setMethod}
-          url={state.url}
-          onUrlChange={state.onUrlChange}
-          headers={state.headers}
-          onAddHeader={state.addHeader}
-          onUpdateHeader={state.updateHeader}
-          onRemoveHeader={state.removeHeader}
-          body={state.body}
-          onBodyChange={state.setBody}
-          bodyParams={state.bodyParams}
-          onAddBodyParam={state.addBodyParam}
-          onUpdateBodyParam={state.updateBodyParam}
-          onRemoveBodyParam={state.removeBodyParam}
-          contentType={state.contentType}
-          onContentTypeChange={state.setContentType}
-          isLoading={state.isLoading}
-          onSend={state.sendRequest}
-          onSave={state.saveCurrentRequest}
-          editingRequest={state.editingRequest}
-          editingCollectionName={state.editingCollectionName}
-          requestName={state.editingRequestName}
-          isDirty={state.isDirty}
-          onShowCollectionContext={() => state.setSidebarTab("collections")}
-          authType={state.authType}
-          onAuthTypeChange={state.setAuthType}
-          bearerToken={state.bearerToken}
-          onBearerTokenChange={state.setBearerToken}
-          rawParams={state.rawParams}
-          onAddParam={state.addParam}
-          onUpdateParam={state.updateParam}
-          onRemoveParam={state.removeParam}
-          requestTab={state.requestTab}
-          onRequestTabChange={state.setRequestTab}
-          flashCommand={flashCommand}
-          shortcutHints={shortcutHints}
-        />
-
-        <div className="flex-1 min-h-0 border-t border-pulse-border">
-          <ResponsePanel
-            response={state.response}
-            isLoading={state.isLoading}
-            error={state.error}
-            responseTab={state.responseTab}
-            onResponseTabChange={state.setResponseTab}
+      <PanelGroup
+        orientation="horizontal"
+        defaultLayout={{
+          "sidebar-panel": state.settings.sidebarWidth ?? 18,
+          "main-panel": 100 - (state.settings.sidebarWidth ?? 18),
+        }}
+        onLayoutChanged={onHorizontalLayoutChanged}
+        className="flex-1 min-w-0"
+      >
+        {/* ── 侧边栏（可水平拖拽调整宽度） ── */}
+        <Panel
+          id="sidebar-panel"
+          minSize="10%"
+          maxSize="35%"
+          className="flex flex-col"
+        >
+          <Sidebar
+            collections={state.collections}
+            history={state.history}
+            activeTab={state.sidebarTab}
+            onTabChange={state.setSidebarTab}
+            onLoadHistory={state.loadFromHistory}
+            onLoadRequest={smartLoadCollectionRequest}
+            /* ── 新建请求 & 集合管理 ── */
+            onNewRequest={state.newTab}
+            onDeleteRequest={state.deleteCollectionRequest}
+            onRenameRequest={state.renameCollectionRequest}
+            onAddCollection={state.addCollection}
+            onDeleteCollection={state.deleteCollection}
+            onUpdateCollectionAuth={state.updateCollectionAuth}
+            onMoveRequest={state.moveRequest}
+            onMoveCollection={state.moveCollection}
+            onUpdateCollectionBaseUrl={state.updateCollectionBaseUrl}
+            onUpdateCollectionVariables={state.updateCollectionVariables}
+            /* ── 环境变量 ── */
+            environments={state.environments}
+            activeEnvironmentId={state.activeEnvironmentId}
+            onAddEnvironment={state.addEnvironment}
+            onDeleteEnvironment={state.deleteEnvironment}
+            onRenameEnvironment={state.renameEnvironment}
+            onSetActiveEnvironment={state.setActiveEnvironment}
+            onAddVariable={state.addVariable}
+            onUpdateVariable={state.updateVariable}
+            onRemoveVariable={state.removeVariable}
+            onImport={state.openImportDialog}
+            onExport={state.openExportDialog}
+            onRunTestScript={state.openTestScriptDialog}
+            /* ── 新标签页打开请求 ── */
+            onOpenInNewTab={openInNewTab}
+            /* ── 打开设置面板 ── */
+            onOpenSettings={state.openSettingsDialog}
           />
-        </div>
-      </main>
+        </Panel>
+
+        {/* 水平拖拽分隔条 */}
+        <PanelResizeHandle className="resize-handle-horizontal" />
+
+        {/* ── 主区域 ── */}
+        <Panel id="main-panel" minSize="50%" className="flex flex-col">
+          {/* 标签栏 */}
+          <TabBar
+            tabs={state.tabs}
+            activeTabId={state.activeTabId}
+            onSwitchTab={state.switchTab}
+            onCloseTab={state.closeTab}
+            onNewTab={state.newTab}
+          />
+
+          {/* 请求面板 + 响应面板（垂直可拖拽） */}
+          <div className="flex-1 min-h-0 flex flex-col">
+            <PanelGroup
+              orientation="vertical"
+              defaultLayout={{
+                "request-panel": state.settings.requestPanelHeight ?? 35,
+                "response-panel": 100 - (state.settings.requestPanelHeight ?? 35),
+              }}
+              onLayoutChanged={onVerticalLayoutChanged}
+              className="flex-1 min-h-0"
+            >
+              <Panel
+                id="request-panel"
+                minSize="10%"
+                maxSize="60%"
+                className="flex flex-col"
+              >
+                <RequestPanel
+                  method={state.method}
+                  onMethodChange={state.setMethod}
+                  url={state.url}
+                  onUrlChange={state.onUrlChange}
+                  headers={state.headers}
+                  onAddHeader={state.addHeader}
+                  onUpdateHeader={state.updateHeader}
+                  onRemoveHeader={state.removeHeader}
+                  body={state.body}
+                  onBodyChange={state.setBody}
+                  bodyParams={state.bodyParams}
+                  onAddBodyParam={state.addBodyParam}
+                  onUpdateBodyParam={state.updateBodyParam}
+                  onRemoveBodyParam={state.removeBodyParam}
+                  contentType={state.contentType}
+                  onContentTypeChange={state.setContentType}
+                  isLoading={state.isLoading}
+                  onSend={state.sendRequest}
+                  onSave={state.saveCurrentRequest}
+                  editingRequest={state.editingRequest}
+                  editingCollectionName={state.editingCollectionName}
+                  requestName={state.editingRequestName}
+                  isDirty={state.isDirty}
+                  onShowCollectionContext={() => state.setSidebarTab("collections")}
+                  authType={state.authType}
+                  onAuthTypeChange={state.setAuthType}
+                  bearerToken={state.bearerToken}
+                  onBearerTokenChange={state.setBearerToken}
+                  rawParams={state.rawParams}
+                  onAddParam={state.addParam}
+                  onUpdateParam={state.updateParam}
+                  onRemoveParam={state.removeParam}
+                  requestTab={state.requestTab}
+                  onRequestTabChange={state.setRequestTab}
+                  flashCommand={flashCommand}
+                  shortcutHints={shortcutHints}
+                />
+              </Panel>
+
+              {/* 垂直拖拽分隔条 */}
+              <PanelResizeHandle className="resize-handle-vertical" />
+
+              <Panel id="response-panel" minSize="20%" className="flex flex-col">
+                <ResponsePanel
+                  response={state.response}
+                  isLoading={state.isLoading}
+                  error={state.error}
+                  responseTab={state.responseTab}
+                  onResponseTabChange={state.setResponseTab}
+                />
+              </Panel>
+            </PanelGroup>
+          </div>
+        </Panel>
+      </PanelGroup>
 
       {/* 请求保存命名对话框 */}
       <SaveDialog

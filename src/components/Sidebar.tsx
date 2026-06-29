@@ -507,7 +507,7 @@ export default memo(function Sidebar({
   // ── 渲染 ──
 
   return (
-    <aside className="w-60 flex flex-col border-r border-pulse-border bg-pulse-surface shrink-0">
+    <aside className="flex flex-col border-r border-pulse-border bg-pulse-surface min-w-0">
       {/* 头部 Logo */}
       <div className="flex items-center justify-between px-4 h-12 border-b border-pulse-border">
         <div className="flex items-center gap-2.5">

@@ -127,7 +127,7 @@ export default function RequestPanel({
   const urlRef = useRef<HTMLInputElement>(null);
 
   return (
-    <div className="shrink-0 border-b border-pulse-border bg-pulse-surface">
+    <div className="border-b border-pulse-border bg-pulse-surface">
       {/* URL 栏：方法选择器 + URL 输入 + 保存 + 发送 */}
       <div className="flex items-center gap-2 px-3 py-2.5">
         {/* HTTP 方法下拉选择器 */}
