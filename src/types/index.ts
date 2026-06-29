@@ -210,3 +210,48 @@ export interface TestRunResult {
   steps: TestStepResult[];
   error: string | null;
 }
+
+// ============================================================
+// 多标签页系统类型定义
+// ============================================================
+
+/** 标签页中请求参数的快照，用于脏状态比较 */
+export interface TabSnapshot {
+  method: string;
+  url: string;
+  headers: HeaderInput[];
+  body: string;
+  bodyParams: HeaderInput[];
+  contentType: string;
+  authType: string;
+  bearerToken: string;
+  rawParams: HeaderInput[];
+}
+
+/** 单个标签页的完整状态 */
+export interface TabState {
+  id: string;
+  /** 自动生成的标题："New Request" 或 URL 最后一段路径 */
+  title: string;
+  /** 创建时间戳（用于排序） */
+  createdAt: number;
+  // ── 请求参数 ──
+  method: HttpMethod;
+  url: string;
+  headers: HeaderInput[];
+  body: string;
+  bodyParams: HeaderInput[];
+  contentType: string;
+  authType: AuthType;
+  bearerToken: string;
+  rawParams: HeaderInput[];
+  requestTab: RequestTab;
+  // ── 响应状态 ──
+  response: ResponseData | null;
+  isLoading: boolean;
+  error: string | null;
+  responseTab: "body" | "headers";
+  // ── 编辑跟踪 ──
+  editingRequest: { collectionId: string; requestId: string } | null;
+  savedSnapshot: TabSnapshot | null;
+}

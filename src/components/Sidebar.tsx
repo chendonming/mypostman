@@ -194,6 +194,7 @@ function SortableRequestItem({
   onLoad,
   onRename,
   onDelete,
+  onOpenInNewTab,
 }: {
   id: string;
   method: string;
@@ -201,6 +202,8 @@ function SortableRequestItem({
   onLoad: () => void;
   onRename: () => void;
   onDelete: () => void;
+  /** 在新标签页中打开（中键点击或悬停按钮触发） */
+  onOpenInNewTab?: () => void;
 }) {
   const {
     attributes,
@@ -238,11 +241,22 @@ function SortableRequestItem({
       <span className="flex-1 text-pulse-text-secondary truncate group-hover:text-pulse-text-primary transition-colors">
         {name}
       </span>
-      {/* 悬停时显示的操作按钮（重命名 + 删除） */}
+      {/* 悬停时显示的操作按钮（在新标签页打开 + 重命名 + 删除） */}
       <span
         className="hidden group-hover:flex items-center gap-0.5 shrink-0"
         onClick={(e) => e.stopPropagation()}
       >
+        {onOpenInNewTab && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onOpenInNewTab(); }}
+            title="Open in new tab"
+            className="w-5 h-5 flex items-center justify-center rounded text-pulse-text-muted hover:text-pulse-accent hover:bg-pulse-hover transition-colors"
+          >
+            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            </svg>
+          </button>
+        )}
         <button
           onClick={onRename}
           className="w-5 h-5 flex items-center justify-center rounded text-pulse-text-muted hover:text-pulse-text-primary hover:bg-pulse-hover transition-colors"
@@ -358,6 +372,8 @@ interface SidebarProps {
   onExport: () => void;
   /* ── 测试脚本 ── */
   onRunTestScript: () => void;
+  /* ── 新标签页打开请求 ── */
+  onOpenInNewTab?: (item: RequestItem, collectionId: string) => void;
 }
 
 // ============================================================
@@ -397,6 +413,7 @@ export default memo(function Sidebar({
   onImport,
   onExport,
   onRunTestScript,
+  onOpenInNewTab,
 }: SidebarProps) {
   const [expandedAuthCol, setExpandedAuthCol] = useState<string | null>(null);
 
@@ -736,6 +753,11 @@ export default memo(function Sidebar({
                             onRename={() => onRenameRequest(p.colId, p.requestId)}
                             onDelete={() =>
                               onDeleteRequest(p.colId, p.requestId)
+                            }
+                            onOpenInNewTab={
+                              onOpenInNewTab
+                                ? () => onOpenInNewTab(req, p.colId)
+                                : undefined
                             }
                           />,
                         );

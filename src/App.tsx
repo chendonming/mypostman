@@ -1,12 +1,13 @@
-import { useRef, useEffect, useState, useMemo } from "react";
+import { useRef, useEffect, useState, useMemo, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { usePulse } from "./hooks/usePulse";
 import { ShortcutEngine } from "./shortcuts/ShortcutEngine";
 import { DEFAULT_COMMANDS, serializeCombo } from "./shortcuts/defaults";
-import type { KeybindingData } from "./types";
+import type { KeybindingData, RequestItem } from "./types";
 import Sidebar from "./components/Sidebar";
 import RequestPanel from "./components/RequestPanel";
 import ResponsePanel from "./components/ResponsePanel";
+import TabBar from "./components/TabBar";
 import SaveDialog from "./components/SaveDialog";
 import ConfirmDialog from "./components/ConfirmDialog";
 import ImportDialog from "./components/ImportDialog";
@@ -18,21 +19,48 @@ import ToastContainer from "./components/Toast";
  * 应用根组件
  *
  * 布局结构（flex 纵向 + 横向）：
- * ┌──────────┬──────────────────────────────┐
- * │          │  RequestPanel（请求面板）       │
- * │  Sidebar ├──────────────────────────────┤
- * │  (240px) │  ResponsePanel（响应面板）      │
- * │          │                              │
- * └──────────┴──────────────────────────────┘
+ * ┌──────────┬──────────────────────────────────────────────┐
+ * │          │  TabBar（标签栏）                              │
+ * │  Sidebar ├──────────────────────────────────────────────┤
+ * │  (240px) │  RequestPanel（请求面板）                      │
+ * │          ├──────────────────────────────────────────────┤
+ * │          │  ResponsePanel（响应面板）                     │
+ * │          │                                              │
+ * └──────────┴──────────────────────────────────────────────┘
  *
- * 所有状态和回调均由 usePulse() hook 单点管理，通过 props 下发给子组件
- * 快捷键系统由 ShortcutEngine 实例管理，通过 ref 绑定生命周期
+ * 所有状态和回调均由 usePulse() hook 单点管理，通过 props 下发给子组件。
+ * 多标签页架构：tabs[] 数组存储所有标签页状态，activeTabId 标记当前激活页。
  */
 export default function App() {
   const state = usePulse();
   const engineRef = useRef<ShortcutEngine | null>(null);
   const [editorOpen, setEditorOpen] = useState(false);
   const [flashCommand, setFlashCommand] = useState<string | null>(null);
+
+  // 智能加载：如果请求已在一个标签页中打开，切换到该标签页而非重复加载
+  const smartLoadCollectionRequest = useCallback(
+    (item: RequestItem, collectionId: string) => {
+      const existingTab = state.tabs.find(
+        (t) =>
+          t.editingRequest?.collectionId === collectionId &&
+          t.editingRequest?.requestId === item.id,
+      );
+      if (existingTab) {
+        state.switchTab(existingTab.id);
+      } else {
+        state.loadCollectionRequest(item, collectionId);
+      }
+    },
+    [state.tabs, state.switchTab, state.loadCollectionRequest],
+  );
+
+  // 从侧边栏在新标签页中打开请求
+  const openInNewTab = useCallback(
+    (item: RequestItem, collectionId: string) => {
+      state.openInTab(item, collectionId, true);
+    },
+    [state.openInTab],
+  );
 
   // 初始化快捷键引擎（仅挂载一次）
   useEffect(() => {
@@ -44,7 +72,7 @@ export default function App() {
         case "sendRequest":
           return { ...cmd, handler: state.sendRequest };
         case "newRequest":
-          return { ...cmd, handler: state.newRequest };
+          return { ...cmd, handler: state.newTab };
         case "saveRequest":
           return { ...cmd, handler: state.saveCurrentRequest };
         case "focusUrlBar":
@@ -85,6 +113,38 @@ export default function App() {
           return { ...cmd, handler: state.cancelSave };
         case "openKeybindingsEditor":
           return { ...cmd, handler: () => setEditorOpen(true) };
+        case "closeTab":
+          return {
+            ...cmd,
+            handler: () => state.closeTab(state.activeTabId),
+          };
+        case "nextTab": {
+          return {
+            ...cmd,
+            handler: () => {
+              const idx = state.tabs.findIndex(
+                (t) => t.id === state.activeTabId,
+              );
+              if (idx < 0) return;
+              const next = state.tabs[(idx + 1) % state.tabs.length];
+              state.switchTab(next.id);
+            },
+          };
+        }
+        case "prevTab": {
+          return {
+            ...cmd,
+            handler: () => {
+              const idx = state.tabs.findIndex(
+                (t) => t.id === state.activeTabId,
+              );
+              if (idx < 0) return;
+              const prev =
+                state.tabs[(idx - 1 + state.tabs.length) % state.tabs.length];
+              state.switchTab(prev.id);
+            },
+          };
+        }
         default:
           return cmd;
       }
@@ -144,9 +204,9 @@ export default function App() {
         activeTab={state.sidebarTab}
         onTabChange={state.setSidebarTab}
         onLoadHistory={state.loadFromHistory}
-        onLoadRequest={state.loadCollectionRequest}
+        onLoadRequest={smartLoadCollectionRequest}
         /* ── 新建请求 & 集合管理 ── */
-        onNewRequest={state.newRequest}
+        onNewRequest={state.newTab}
         onDeleteRequest={state.deleteCollectionRequest}
         onRenameRequest={state.renameCollectionRequest}
         onAddCollection={state.addCollection}
@@ -168,9 +228,20 @@ export default function App() {
         onImport={state.openImportDialog}
         onExport={state.openExportDialog}
         onRunTestScript={state.openTestScriptDialog}
+        /* ── 新标签页打开请求 ── */
+        onOpenInNewTab={openInNewTab}
       />
 
       <main className="flex-1 flex flex-col min-w-0">
+        {/* 标签栏 */}
+        <TabBar
+          tabs={state.tabs}
+          activeTabId={state.activeTabId}
+          onSwitchTab={state.switchTab}
+          onCloseTab={state.closeTab}
+          onNewTab={state.newTab}
+        />
+
         <RequestPanel
           method={state.method}
           onMethodChange={state.setMethod}

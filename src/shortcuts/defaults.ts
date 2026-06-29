@@ -147,6 +147,31 @@ export const DEFAULT_COMMANDS: CommandDef[] = [
     scope: "responsePanel",
     handler: () => {},
   },
+  // ── Tab Navigation ──
+  {
+    id: "closeTab",
+    label: "Close Current Tab",
+    category: "Tab Navigation",
+    defaultKeys: [combo("ctrl+w"), combo("meta+w")],
+    scope: "global",
+    handler: () => {},
+  },
+  {
+    id: "nextTab",
+    label: "Next Tab",
+    category: "Tab Navigation",
+    defaultKeys: [combo("ctrl+tab")],
+    scope: "global",
+    handler: () => {},
+  },
+  {
+    id: "prevTab",
+    label: "Previous Tab",
+    category: "Tab Navigation",
+    defaultKeys: [combo("ctrl+shift+tab")],
+    scope: "global",
+    handler: () => {},
+  },
   // ── Dialog ──
   {
     id: "dialogConfirm",
