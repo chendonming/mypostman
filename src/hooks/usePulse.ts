@@ -1138,6 +1138,7 @@ export function usePulse() {
           if (t.id !== activeTabId) return t;
           const updated = {
             ...t,
+            title: item.name,
             method: item.method as HttpMethod,
             url: item.url,
             headers: item.headers?.length ? item.headers : [{ key: "", value: "", enabled: true }],
@@ -1256,8 +1257,8 @@ export function usePulse() {
     }
   }, [activeTab, collections, updateActiveSnapshot, addToast]);
 
-  const confirmSave = useCallback(() => {
-    const name = saveDialogName.trim();
+  const confirmSave = useCallback((nameArg?: string) => {
+    const name = (nameArg ?? saveDialogName).trim();
     if (!name) return;
 
     const {
@@ -1318,11 +1319,11 @@ export function usePulse() {
       );
     }
 
-    // 更新当前标签页的 editingRequest
+    // 更新当前标签页的 editingRequest 与 title
     setTabs((prev) =>
       prev.map((t) =>
         t.id === activeTabId
-          ? { ...t, editingRequest: { collectionId: colId, requestId: newReq.id } }
+          ? { ...t, title: name, editingRequest: { collectionId: colId, requestId: newReq.id } }
           : t,
       ),
     );

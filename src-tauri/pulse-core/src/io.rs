@@ -118,6 +118,9 @@ pub struct CollectionDocumentItem {
     /** 请求体键值对（用于 application/x-www-form-urlencoded） */
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub body_params: Option<Vec<crate::HeaderInput>>,
+    /** multipart/form-data 条目列表 */
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub body_form_data: Option<Vec<crate::FormDataEntry>>,
     /** 断言表达式列表，例如 "status == 200" 或 "body.success == true" */
     #[serde(default)]
     pub assertions: Vec<String>,
@@ -183,6 +186,7 @@ pub fn collection_document_to_collection(doc: CollectionDocument) -> Collection 
             bearer_token: req_bearer_token,
             params: req.params.unwrap_or_default(),
             body_params: req.body_params,
+            body_form_data: req.body_form_data,
             assertions: req.assertions,
             skip: req.skip,
             extract: req.extract,
@@ -237,6 +241,7 @@ pub fn collection_to_collection_document(col: &Collection) -> CollectionDocument
                 assertions: req.assertions.clone(),
                 params: if req.params.is_empty() { None } else { Some(req.params.clone()) },
                 body_params: req.body_params.clone(),
+                body_form_data: req.body_form_data.clone(),
                 skip: req.skip,
                 extract: req.extract.clone(),
             }

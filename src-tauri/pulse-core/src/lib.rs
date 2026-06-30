@@ -73,15 +73,22 @@ pub struct CollectionItem {
     pub headers: Vec<HeaderInput>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub body: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /** Content-Type（前端使用 camelCase，向后兼容 snake_case） */
+    #[serde(rename = "contentType", alias = "content_type", default, skip_serializing_if = "Option::is_none")]
     pub content_type: Option<String>,
     /** 认证方式：none / bearer / inherit */
+    #[serde(rename = "authType", alias = "auth_type")]
     pub auth_type: String,
+    #[serde(rename = "bearerToken", alias = "bearer_token")]
     pub bearer_token: String,
     #[serde(default)]
     pub params: Vec<HeaderInput>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /** URL 编码请求体键值对（前端使用 camelCase） */
+    #[serde(rename = "bodyParams", alias = "body_params", default, skip_serializing_if = "Option::is_none")]
     pub body_params: Option<Vec<HeaderInput>>,
+    /** multipart/form-data 条目列表（前端使用 camelCase） */
+    #[serde(rename = "bodyFormData", default, skip_serializing_if = "Option::is_none")]
+    pub body_form_data: Option<Vec<FormDataEntry>>,
     /** 断言表达式列表，例如 "status == 200" 或 "body.success == true" */
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub assertions: Vec<String>,
@@ -101,7 +108,10 @@ pub struct Collection {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     pub base_url: String,
+    /** 认证方式（前端使用 camelCase） */
+    #[serde(rename = "authType", alias = "auth_type")]
     pub auth_type: String,
+    #[serde(rename = "bearerToken", alias = "bearer_token")]
     pub bearer_token: String,
     /** 集合级默认变量，用于 {{key}} 模板替换 */
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -130,7 +140,7 @@ pub struct RequestInput {
 }
 
 /** multipart/form-data 中的单个条目（文本值或文件） */
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FormDataEntry {
     pub key: String,

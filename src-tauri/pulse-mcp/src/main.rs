@@ -681,8 +681,12 @@ fn handle_create_test_script(args: &HashMap<String, serde_json::Value>) -> McpTo
                     body,
                     content_type,
                     auth: req_auth,
+                    params: None,
+                    body_params: None,
+                    body_form_data: None,
                     assertions,
                     skip,
+                    extract: Vec::new(),
                 });
             }
             result
