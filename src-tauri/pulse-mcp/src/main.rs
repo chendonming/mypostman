@@ -413,6 +413,7 @@ fn handle_send_request(args: &HashMap<String, serde_json::Value>) -> McpToolResu
         headers,
         body,
         content_type,
+        form_data: None,
     };
 
     // 执行变量替换
@@ -432,6 +433,7 @@ fn handle_send_request(args: &HashMap<String, serde_json::Value>) -> McpToolResu
         headers: exec_headers,
         body: exec_body,
         content_type: exec_ct,
+        form_data: None,
     };
 
     let rt = match tokio::runtime::Runtime::new() {

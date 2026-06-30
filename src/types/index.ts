@@ -11,6 +11,24 @@ export interface HeaderInput {
   enabled: boolean;
 }
 
+/** multipart/form-data 条目：文本值或文件 */
+export interface FormDataEntry {
+  /** 字段名 */
+  key: string;
+  /** 文本值（当 isFile=false 时使用） */
+  value: string;
+  /** 是否启用 */
+  enabled: boolean;
+  /** true=文件上传，false=文本值 */
+  isFile: boolean;
+  /** 已选择的文件路径（isFile=true 时有效） */
+  filePath: string | null;
+  /** 显示用的文件名（isFile=true 时有效） */
+  fileName: string | null;
+  /** 覆盖的 MIME 类型（isFile=true，可选，为空时由 Rust 自动推断） */
+  fileContentType: string;
+}
+
 /** 响应提取规则：从响应 JSON 中提取值并赋给变量 */
 export interface ExtractRule {
   /** 变量名（后续通过 {{name}} 引用） */
@@ -73,6 +91,8 @@ export interface RequestItem {
   params: HeaderInput[];
   /** 请求体键值对（用于 application/x-www-form-urlencoded），可选向后兼容 */
   bodyParams?: HeaderInput[];
+  /** multipart/form-data 条目列表，可选向后兼容 */
+  bodyFormData?: FormDataEntry[];
   /** 断言表达式列表，例如 "status == 200" 或 "body.success == true" */
   assertions?: string[];
   /** 设为 true 可临时跳过此请求 */
@@ -240,6 +260,7 @@ export interface TabSnapshot {
   headers: HeaderInput[];
   body: string;
   bodyParams: HeaderInput[];
+  bodyFormData: FormDataEntry[];
   contentType: string;
   authType: string;
   bearerToken: string;
@@ -259,6 +280,7 @@ export interface TabState {
   headers: HeaderInput[];
   body: string;
   bodyParams: HeaderInput[];
+  bodyFormData: FormDataEntry[];
   contentType: string;
   authType: AuthType;
   bearerToken: string;

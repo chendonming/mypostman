@@ -1,5 +1,5 @@
 import { useRef } from "react";
-import type { HeaderInput, RequestTab, HttpMethod, AuthType } from "../types";
+import type { HeaderInput, FormDataEntry, RequestTab, HttpMethod, AuthType } from "../types";
 import AuthPanel from "./AuthPanel";
 
 /**
@@ -22,6 +22,13 @@ interface RequestPanelProps {
   onAddBodyParam: () => void;
   onUpdateBodyParam: (i: number, f: keyof HeaderInput, v: string | boolean) => void;
   onRemoveBodyParam: (i: number) => void;
+  /** multipart/form-data 条目列表 */
+  bodyFormData: FormDataEntry[];
+  onAddFormDataField: () => void;
+  onUpdateFormDataField: (i: number, f: keyof FormDataEntry, v: string | boolean) => void;
+  onRemoveFormDataField: (i: number) => void;
+  onToggleFormDataType: (i: number) => void;
+  onPickFormFile: (i: number) => void;
   contentType: string;
   onContentTypeChange: (ct: string) => void;
   isLoading: boolean;
@@ -72,6 +79,7 @@ const methodSelectColors: Record<string, string> = {
 const CONTENT_TYPES = [
   "application/json",
   "application/x-www-form-urlencoded",
+  "multipart/form-data",
   "text/plain",
   "application/xml",
   "text/html",
@@ -101,6 +109,12 @@ export default function RequestPanel({
   onAddBodyParam,
   onUpdateBodyParam,
   onRemoveBodyParam,
+  bodyFormData,
+  onAddFormDataField,
+  onUpdateFormDataField,
+  onRemoveFormDataField,
+  onToggleFormDataType,
+  onPickFormFile,
   contentType,
   onContentTypeChange,
   isLoading,
@@ -652,8 +666,150 @@ export default function RequestPanel({
                   + Add field
                 </button>
               </div>
+            ) : contentType === "multipart/form-data" ? (
+              /* multipart/form-data → 键值对编辑器（支持文件） */
+              <div className="space-y-1">
+                <div className="grid grid-cols-[1fr_1fr_auto_auto] gap-1.5 text-[11px] text-pulse-text-muted font-medium px-2 pb-1">
+                  <span>Key</span>
+                  <span>Value</span>
+                  <span className="w-6 text-center">Type</span>
+                  <span className="w-8"></span>
+                </div>
+                {bodyFormData.map((param, i) => (
+                  <div key={i} className="grid grid-cols-[1fr_1fr_auto_auto] gap-1.5 items-center">
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={() => onUpdateFormDataField(i, "enabled", !param.enabled)}
+                        className={`shrink-0 w-3.5 h-3.5 rounded border ${
+                          param.enabled
+                            ? "bg-pulse-accent border-pulse-accent"
+                            : "bg-pulse-deepest border-pulse-border"
+                        } flex items-center justify-center transition-colors`}
+                      >
+                        {param.enabled && (
+                          <svg
+                            className="w-2.5 h-2.5 text-pulse-deepest"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={3}
+                              d="M5 13l4 4L19 7"
+                            />
+                          </svg>
+                        )}
+                      </button>
+                      <input
+                        type="text"
+                        value={param.key}
+                        onChange={(e) =>
+                          onUpdateFormDataField(i, "key", e.target.value)
+                        }
+                        placeholder="Field name"
+                        className="flex-1 bg-pulse-deepest border border-pulse-border rounded px-2 py-1 text-xs font-mono text-pulse-text-primary placeholder-pulse-text-muted/50 transition-colors"
+                      />
+                    </div>
+                    {/* 值区域：文本输入或文件选择 */}
+                    <div className="flex items-center gap-1">
+                      {param.isFile ? (
+                        <button
+                          onClick={() => onPickFormFile(i)}
+                          className="flex-1 flex items-center gap-1.5 bg-pulse-deepest border border-pulse-border rounded px-2 py-1 text-xs font-mono text-pulse-text-primary hover:border-pulse-accent/40 transition-colors overflow-hidden"
+                        >
+                          <svg
+                            className="w-3.5 h-3.5 shrink-0 text-pulse-accent"
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            stroke="currentColor"
+                          >
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"
+                            />
+                          </svg>
+                          <span className="truncate">
+                            {param.fileName || "Choose file..."}
+                          </span>
+                        </button>
+                      ) : (
+                        <input
+                          type="text"
+                          value={param.value}
+                          onChange={(e) =>
+                            onUpdateFormDataField(i, "value", e.target.value)
+                          }
+                          placeholder="Value"
+                          className="flex-1 bg-pulse-deepest border border-pulse-border rounded px-2 py-1 text-xs font-mono text-pulse-text-primary placeholder-pulse-text-muted/50 transition-colors"
+                        />
+                      )}
+                    </div>
+                    {/* 切换文本/文件模式按钮 */}
+                    <button
+                      onClick={() => onToggleFormDataType(i)}
+                      className={`text-xs px-1.5 py-1 rounded transition-colors ${
+                        param.isFile
+                          ? "text-pulse-accent hover:text-pulse-accent/80"
+                          : "text-pulse-text-muted hover:text-pulse-text-primary"
+                      }`}
+                      title={param.isFile ? "Switch to text" : "Switch to file"}
+                    >
+                      <svg
+                        className="w-3.5 h-3.5"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                      >
+                        {param.isFile ? (
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"
+                          />
+                        ) : (
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"
+                          />
+                        )}
+                      </svg>
+                    </button>
+                    {/* 删除按钮 */}
+                    <button
+                      onClick={() => onRemoveFormDataField(i)}
+                      className="text-pulse-text-muted hover:text-pulse-rose transition-colors p-0.5"
+                    >
+                      <svg
+                        className="w-3.5 h-3.5"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M6 18L18 6M6 6l12 12"
+                        />
+                      </svg>
+                    </button>
+                  </div>
+                ))}
+                <button
+                  onClick={onAddFormDataField}
+                  className="btn-ghost text-xs w-full justify-center py-1"
+                >
+                  + Add field
+                </button>
+              </div>
             ) : (
-              /* 其他 Content-Type → 原始文本域 */
               <textarea
                 value={body}
                 onChange={(e) => onBodyChange(e.target.value)}

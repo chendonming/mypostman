@@ -401,6 +401,12 @@ export default function App() {
                   onAddBodyParam={state.addBodyParam}
                   onUpdateBodyParam={state.updateBodyParam}
                   onRemoveBodyParam={state.removeBodyParam}
+                  bodyFormData={state.bodyFormData}
+                  onAddFormDataField={state.addFormDataField}
+                  onUpdateFormDataField={state.updateFormDataField}
+                  onRemoveFormDataField={state.removeFormDataField}
+                  onToggleFormDataType={state.toggleFormDataType}
+                  onPickFormFile={state.pickFormFile}
                   contentType={state.contentType}
                   onContentTypeChange={state.setContentType}
                   isLoading={state.isLoading}

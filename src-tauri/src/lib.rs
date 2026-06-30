@@ -17,11 +17,11 @@ use tauri_plugin_dialog::DialogExt;
 // ===== 共享核心库（类型 + 纯函数） =====
 // 通过 re-export 保持向后兼容：crate::HeaderInput 等路径仍然有效
 pub use pulse_core::{
-    Collection, CollectionData, CollectionItem, Environment, EnvironmentData,
-    EnvironmentVariable, HeaderInput, RequestInput, ResponseData, TimingInfo,
     chrono_now_iso, execute_http_request, load_collections_data,
     load_environments_data, resolve_data_dir, save_collections_data,
     save_environments_data, substitute_variables,
+    Collection, CollectionData, CollectionItem, Environment, EnvironmentData,
+    EnvironmentVariable, FormDataEntry, HeaderInput, RequestInput, ResponseData, TimingInfo,
 };
 // 子模块引用供 Tauri 命令使用
 use pulse_core::io;
@@ -111,6 +111,13 @@ fn now_millis() -> u64 {
         .as_millis() as u64
 }
 
+/** 文件选择器返回的文件信息 */
+#[derive(Debug, Serialize, Deserialize)]
+pub struct FileInfo {
+    pub path: String,
+    pub name: String,
+}
+
 // ============================================================
 // Tauri 命令 —— 前端通过 invoke() 调用
 // ============================================================
@@ -148,6 +155,17 @@ async fn send_request(app: AppHandle, input: RequestInput, variables: Vec<Enviro
         .as_ref()
         .map(|ct| substitute_variables(ct, &variables));
 
+    // 对 form_data 条目的 key/value 执行变量替换（file_path/file_name 不做替换）
+    let form_data = input.form_data.map(|fd| {
+        fd.into_iter()
+            .map(|e| FormDataEntry {
+                key: substitute_variables(&e.key, &variables),
+                value: substitute_variables(&e.value, &variables),
+                ..e
+            })
+            .collect()
+    });
+
     // 记录原始请求信息（用于日志）
     let request_headers: Vec<HeaderInput> = substituted_headers.clone();
     let request_body: Option<String> = body.as_ref().map(|b| truncate_body(b));
@@ -159,6 +177,7 @@ async fn send_request(app: AppHandle, input: RequestInput, variables: Vec<Enviro
         headers: substituted_headers,
         body,
         content_type,
+        form_data,
     };
     let result = execute_http_request(exec_input).await;
 
@@ -669,6 +688,31 @@ async fn pick_test_script_file(app: AppHandle) -> Result<Option<String>, String>
 }
 
 /**
+ * pick_form_file：弹出原生文件选择器，选取要上传的文件
+ *
+ * 用于 multipart/form-data 的文件字段选择。
+ * 返回 FileInfo { path, name }，用户取消时返回 None。
+ */
+#[tauri::command]
+async fn pick_form_file(app: AppHandle) -> Result<Option<FileInfo>, String> {
+    use tauri_plugin_dialog::DialogExt;
+    let file_path = app
+        .dialog()
+        .file()
+        .blocking_pick_file();
+
+    Ok(file_path.map(|p| {
+        let path_str = p.to_string();
+        let name = std::path::Path::new(&path_str)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or(&path_str)
+            .to_string();
+        FileInfo { path: path_str, name }
+    }))
+}
+
+/**
  * run_test_script：执行 YAML 测试脚本
  *
  * 1. 读取 YAML 文件
@@ -752,6 +796,7 @@ pub fn run() {
             import_data_from_file,
             pick_import_file,
             pick_test_script_file,
+            pick_form_file,
             run_test_script,
             run_collection_test,
         ])

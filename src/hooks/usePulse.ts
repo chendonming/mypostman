@@ -6,6 +6,7 @@ import type {
   SidebarTab,
   RequestTab,
   HeaderInput,
+  FormDataEntry,
   ResponseData,
   Collection,
   RequestItem,
@@ -116,6 +117,7 @@ function createBlankTab(overrides?: Partial<TabState>): TabState {
     headers: [{ key: "", value: "", enabled: true }],
     body: "",
     bodyParams: [{ key: "", value: "", enabled: true }],
+    bodyFormData: [{ key: "", value: "", enabled: true, isFile: false, filePath: null, fileName: null, fileContentType: "" }],
     contentType: "application/json",
     authType: "none" as AuthType,
     bearerToken: "",
@@ -150,6 +152,9 @@ function createTabFromRequest(item: RequestItem, collectionId: string): TabState
   const rawParams = item.params?.length
     ? item.params
     : [{ key: "", value: "", enabled: true }];
+  const bodyFormData = item.bodyFormData?.length
+    ? item.bodyFormData
+    : [{ key: "", value: "", enabled: true, isFile: false, filePath: null, fileName: null, fileContentType: "" }];
 
   return {
     id: crypto.randomUUID(),
@@ -160,6 +165,7 @@ function createTabFromRequest(item: RequestItem, collectionId: string): TabState
     headers,
     body,
     bodyParams,
+    bodyFormData,
     contentType,
     authType,
     bearerToken,
@@ -171,7 +177,7 @@ function createTabFromRequest(item: RequestItem, collectionId: string): TabState
     responseTab: "body" as "body" | "headers",
     editingRequest: { collectionId, requestId: item.id },
     savedSnapshot: {
-      method, url: url.trim(), headers, body, bodyParams,
+      method, url: url.trim(), headers, body, bodyParams, bodyFormData,
       contentType, authType, bearerToken, rawParams,
     },
   };
@@ -304,6 +310,7 @@ export function usePulse() {
   const headers = activeTab.headers;
   const body = activeTab.body;
   const bodyParams = activeTab.bodyParams;
+  const bodyFormData = activeTab.bodyFormData;
   const contentType = activeTab.contentType;
   const authType = activeTab.authType;
   const bearerToken = activeTab.bearerToken;
@@ -326,6 +333,7 @@ export function usePulse() {
       JSON.stringify(activeTab.headers) !== JSON.stringify(s.headers) ||
       activeTab.body !== s.body ||
       JSON.stringify(activeTab.bodyParams) !== JSON.stringify(s.bodyParams) ||
+      JSON.stringify(activeTab.bodyFormData) !== JSON.stringify(s.bodyFormData) ||
       activeTab.contentType !== s.contentType ||
       activeTab.authType !== s.authType ||
       activeTab.bearerToken !== s.bearerToken ||
@@ -333,7 +341,7 @@ export function usePulse() {
     );
   }, [
     activeTab.method, activeTab.url, activeTab.headers,
-    activeTab.body, activeTab.bodyParams, activeTab.contentType,
+    activeTab.body, activeTab.bodyParams, activeTab.bodyFormData, activeTab.contentType,
     activeTab.authType, activeTab.bearerToken, activeTab.rawParams,
     activeTab.savedSnapshot,
   ]);
@@ -479,6 +487,110 @@ export function usePulse() {
     [activeTabId],
   );
 
+  // ── multipart/form-data 条目 CRUD ──
+
+  const addFormDataField = useCallback(() => {
+    setTabs((prev) =>
+      prev.map((t) =>
+        t.id === activeTabId
+          ? {
+              ...t,
+              bodyFormData: [
+                ...t.bodyFormData,
+                { key: "", value: "", enabled: true, isFile: false, filePath: null, fileName: null, fileContentType: "" },
+              ],
+            }
+          : t,
+      ),
+    );
+  }, [activeTabId]);
+
+  const updateFormDataField = useCallback(
+    (index: number, field: keyof FormDataEntry, value: string | boolean) => {
+      setTabs((prev) =>
+        prev.map((t) => {
+          if (t.id !== activeTabId) return t;
+          const next = [...t.bodyFormData];
+          next[index] = { ...next[index], [field]: value };
+          return { ...t, bodyFormData: next };
+        }),
+      );
+    },
+    [activeTabId],
+  );
+
+  const removeFormDataField = useCallback(
+    (index: number) => {
+      setTabs((prev) =>
+        prev.map((t) => {
+          if (t.id !== activeTabId) return t;
+          return {
+            ...t,
+            bodyFormData: t.bodyFormData.filter((_, i) => i !== index),
+          };
+        }),
+      );
+    },
+    [activeTabId],
+  );
+
+  /**
+   * 切换 form-data 条目的文本/文件模式
+   * 切换到文件模式时重置值，切换到文本模式时清除文件路径
+   */
+  const toggleFormDataType = useCallback(
+    (index: number) => {
+      setTabs((prev) =>
+        prev.map((t) => {
+          if (t.id !== activeTabId) return t;
+          const next = [...t.bodyFormData];
+          const entry = next[index];
+          const newIsFile = !entry.isFile;
+          next[index] = {
+            ...entry,
+            isFile: newIsFile,
+            // 切换模式时清理对方类型的值
+            value: newIsFile ? "" : entry.value,
+            filePath: newIsFile ? null : entry.filePath,
+            fileName: newIsFile ? null : entry.fileName,
+            fileContentType: newIsFile ? "" : entry.fileContentType,
+          };
+          return { ...t, bodyFormData: next };
+        }),
+      );
+    },
+    [activeTabId],
+  );
+
+  /**
+   * 打开文件选择器并更新指定索引的 form-data 条目
+   */
+  const pickFormFile = useCallback(
+    async (index: number) => {
+      try {
+        const result = await invoke<{ path: string; name: string } | null>("pick_form_file");
+        if (!result) return; // 用户取消
+        setTabs((prev) =>
+          prev.map((t) => {
+            if (t.id !== activeTabId) return t;
+            const next = [...t.bodyFormData];
+            next[index] = {
+              ...next[index],
+              isFile: true,
+              filePath: result.path,
+              fileName: result.name,
+              value: `[File] ${result.name}`,
+            };
+            return { ...t, bodyFormData: next };
+          }),
+        );
+      } catch (e) {
+        console.error("Failed to pick file:", e);
+      }
+    },
+    [activeTabId],
+  );
+
   // ── URL / 查询参数双向同步 ──
 
   const skipUrlSync = useRef(false);
@@ -588,6 +700,7 @@ export function usePulse() {
             headers: t.headers,
             body: t.body,
             bodyParams: t.bodyParams,
+            bodyFormData: t.bodyFormData,
             contentType: t.contentType,
             authType: t.authType,
             bearerToken: t.bearerToken,
@@ -880,6 +993,7 @@ export function usePulse() {
       headers: tabHeaders,
       body: tabBody,
       bodyParams: tabBodyParams,
+      bodyFormData: tabBodyFormData,
       contentType: tabContentType,
       authType: tabAuthType,
       bearerToken: tabBearerToken,
@@ -957,13 +1071,19 @@ export function usePulse() {
         finalBody = serializeBodyParams(tabBodyParams);
       }
 
+      // 过滤出可用的 form-data 条目（有 key 且 enabled）
+      const cleanFormData = tabContentType === "multipart/form-data" && tabBodyFormData?.length
+        ? tabBodyFormData.filter((f) => f.enabled && f.key.trim())
+        : undefined;
+
       const result = await invoke<ResponseData>("send_request", {
         input: {
           method: tabMethod,
           url: finalUrl,
           headers: cleanHeaders,
-          body: finalBody || null,
+          body: (cleanFormData ? null : finalBody) || null,
           content_type: tabContentType || null,
+          form_data: cleanFormData?.length ? cleanFormData : null,
         },
         variables: mergedVars,
       });
@@ -1028,6 +1148,9 @@ export function usePulse() {
               : ((item.contentType ?? "application/json") === "application/x-www-form-urlencoded" && item.body
                 ? parseBodyParams(item.body)
                 : [{ key: "", value: "", enabled: true }]),
+            bodyFormData: item.bodyFormData?.length
+              ? item.bodyFormData
+              : [{ key: "", value: "", enabled: true, isFile: false, filePath: null, fileName: null, fileContentType: "" }],
             authType: (item.authType as AuthType) ?? "none",
             bearerToken: item.bearerToken ?? "",
             rawParams: item.params?.length ? item.params : [{ key: "", value: "", enabled: true }],
@@ -1040,6 +1163,7 @@ export function usePulse() {
             headers: updated.headers,
             body: updated.body,
             bodyParams: updated.bodyParams,
+            bodyFormData: updated.bodyFormData,
             contentType: updated.contentType,
             authType: updated.authType,
             bearerToken: updated.bearerToken,
@@ -1072,6 +1196,7 @@ export function usePulse() {
       headers: tabHeaders,
       body: tabBody,
       bodyParams: tabBodyParams,
+      bodyFormData: tabBodyFormData,
       contentType: tabContentType,
       authType: tabAuthType,
       bearerToken: tabBearerToken,
@@ -1112,6 +1237,7 @@ export function usePulse() {
                         bearerToken: tabBearerToken,
                         params: tabRawParams,
                         bodyParams: tabBodyParams,
+                        bodyFormData: tabBodyFormData,
                       }
                     : r,
                 ),
@@ -1140,6 +1266,7 @@ export function usePulse() {
       headers: tabHeaders,
       body: tabBody,
       bodyParams: tabBodyParams,
+      bodyFormData: tabBodyFormData,
       contentType: tabContentType,
       authType: tabAuthType,
       bearerToken: tabBearerToken,
@@ -1171,6 +1298,7 @@ export function usePulse() {
       bearerToken: tabBearerToken,
       params: tabRawParams,
       bodyParams: tabBodyParams,
+      bodyFormData: tabBodyFormData,
     };
 
     let colId: string;
@@ -1680,6 +1808,12 @@ export function usePulse() {
     addBodyParam,
     updateBodyParam,
     removeBodyParam,
+    bodyFormData,
+    addFormDataField,
+    updateFormDataField,
+    removeFormDataField,
+    toggleFormDataType,
+    pickFormFile,
     contentType,
     setContentType,
     rawParams,

@@ -125,6 +125,25 @@ pub struct RequestInput {
     pub body: Option<String>,
     /** Content-Type 字段值 */
     pub content_type: Option<String>,
+    /** multipart/form-data 条目列表（优先于 body/content_type） */
+    pub form_data: Option<Vec<FormDataEntry>>,
+}
+
+/** multipart/form-data 中的单个条目（文本值或文件） */
+#[derive(Debug, Serialize, Deserialize)]
+pub struct FormDataEntry {
+    pub key: String,
+    /** 文本值（is_file=false 时使用） */
+    pub value: String,
+    pub enabled: bool,
+    /** true=文件上传，false=文本值 */
+    pub is_file: bool,
+    /** 已选择的文件路径（is_file=true 时有效） */
+    pub file_path: Option<String>,
+    /** 显示用的文件名（is_file=true 时有效） */
+    pub file_name: Option<String>,
+    /** 覆盖的 MIME 类型（为空时由 mime_guess 自动推断） */
+    pub file_content_type: String,
 }
 
 /**
@@ -210,18 +229,92 @@ pub async fn execute_http_request(input: RequestInput) -> Result<ResponseData, S
     }
 
     // 如果 Content-Type 尚未设置且参数中提供了，则补充
-    if let Some(ct) = &input.content_type {
-        if !headers_map.contains_key("content-type") && !ct.is_empty() {
-            if let Ok(v) = HeaderValue::from_str(ct) {
-                headers_map.insert("content-type", v);
+    // 注意：有 form_data 时不手动设置 Content-Type（reqwest::multipart 自动处理）
+    let has_form_data = input.form_data.as_ref().map_or(false, |fd| {
+        fd.iter().any(|e| e.enabled)
+    });
+
+    if !has_form_data {
+        if let Some(ct) = &input.content_type {
+            if !headers_map.contains_key("content-type") && !ct.is_empty() {
+                if let Ok(v) = HeaderValue::from_str(ct) {
+                    headers_map.insert("content-type", v);
+                }
             }
         }
     }
 
     req = req.headers(headers_map);
 
-    // 装配请求体
-    if let Some(body_str) = &input.body {
+    // 装配请求体（multipart/form-data 优先）
+    if has_form_data {
+        let fd = input.form_data.as_ref().unwrap();
+        let mut form = reqwest::multipart::Form::new();
+
+        for entry in fd.iter().filter(|e| e.enabled && !e.key.trim().is_empty()) {
+            if entry.is_file {
+                if let Some(ref path) = entry.file_path {
+                    let path = path.trim();
+                    if !path.is_empty() {
+                        match std::fs::read(path) {
+                            Ok(bytes) => {
+                                let file_name = entry.file_name.as_deref()
+                                    .unwrap_or("file")
+                                    .to_string();
+
+                                // 自动推断 MIME 类型（用户未指定时）
+                                let mime_str = if entry.file_content_type.is_empty() {
+                                    let ext = std::path::Path::new(path)
+                                        .extension()
+                                        .and_then(|e| e.to_str())
+                                        .unwrap_or("");
+                                    match ext.to_lowercase().as_str() {
+                                        "txt" => "text/plain",
+                                        "html" | "htm" => "text/html",
+                                        "json" => "application/json",
+                                        "xml" => "application/xml",
+                                        "png" => "image/png",
+                                        "jpg" | "jpeg" => "image/jpeg",
+                                        "gif" => "image/gif",
+                                        "webp" => "image/webp",
+                                        "svg" => "image/svg+xml",
+                                        "pdf" => "application/pdf",
+                                        "zip" => "application/zip",
+                                        "gz" | "gzip" => "application/gzip",
+                                        "mp4" => "video/mp4",
+                                        _ => "application/octet-stream",
+                                    }
+                                } else {
+                                    &entry.file_content_type
+                                };
+
+                                match reqwest::multipart::Part::bytes(bytes)
+                                    .file_name(file_name)
+                                    .mime_str(mime_str)
+                                {
+                                    Ok(part) => {
+                                        form = form.part(entry.key.clone(), part);
+                                    }
+                                    Err(e) => {
+                                        eprintln!("Invalid MIME for field '{}': {}", entry.key, e);
+                                        form = form.text(entry.key.clone(), format!("[MIME error: {}]", e));
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                eprintln!("Failed to read file '{}' for field '{}': {}",
+                                    path, entry.key, e);
+                                form = form.text(entry.key.clone(), format!("[File read error: {}]", e));
+                            }
+                        }
+                    }
+                }
+            } else {
+                form = form.text(entry.key.clone(), entry.value.clone());
+            }
+        }
+        req = req.multipart(form);
+    } else if let Some(body_str) = &input.body {
         if !body_str.is_empty() {
             req = req.body(body_str.clone());
         }

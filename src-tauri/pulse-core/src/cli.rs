@@ -393,6 +393,7 @@ fn execute_and_print_request(
         headers: substituted_headers,
         body,
         content_type,
+        form_data: None,
     };
 
     let rt = tokio::runtime::Runtime::new()?;
@@ -450,6 +451,7 @@ fn handle_send_request(
         headers,
         body: args.body.clone(),
         content_type: args.content_type.clone(),
+        form_data: None,
     };
 
     execute_and_print_request(input, &variables, json_mode)
@@ -501,6 +503,7 @@ fn handle_request_from_collection(
         headers,
         body,
         content_type,
+        form_data: None,
     };
 
     execute_and_print_request(input, &variables, json_mode)

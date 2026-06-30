@@ -267,6 +267,7 @@ async fn execute_single_request(
         headers,
         body,
         content_type,
+        form_data: None,
     };
 
     let exec_start = std::time::Instant::now();

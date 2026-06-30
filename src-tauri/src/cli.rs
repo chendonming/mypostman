@@ -242,6 +242,7 @@ fn handle_request(
         headers,
         body: args.body.clone(),
         content_type: args.content_type.clone(),
+        form_data: None,
     };
 
     // 5. 执行变量替换后发送请求
@@ -270,6 +271,7 @@ fn handle_request(
         headers: substituted_headers,
         body,
         content_type,
+        form_data: None,
     };
 
     // 6. 创建 tokio 运行时并发起 HTTP 请求
