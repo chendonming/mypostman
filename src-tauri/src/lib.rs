@@ -247,6 +247,38 @@ fn clear_logs(store: tauri::State<'_, Mutex<LogStore>>) -> Result<(), String> {
     Ok(())
 }
 
+/**
+ * toggle_log_window：切换日志查看器窗口的显示/隐藏
+ *
+ * 类似 Chrome DevTools 的切换行为：
+ * - 日志窗口已存在 → 关闭它
+ * - 日志窗口不存在 → 创建新窗口
+ * 由前端 Ctrl+Shift+L 快捷键触发
+ */
+#[tauri::command]
+async fn toggle_log_window(app: AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("logs") {
+        // 窗口已存在 → 关闭（toggle off）
+        window.close().map_err(|e| format!("关闭日志窗口失败: {}", e))
+    } else {
+        // 窗口不存在 → 创建（toggle on）
+        let logs_url = if tauri::is_dev() {
+            tauri::WebviewUrl::External(
+                "http://localhost:1420".parse().expect("valid dev URL"),
+            )
+        } else {
+            tauri::WebviewUrl::App("index.html".into())
+        };
+
+        tauri::WebviewWindowBuilder::new(&app, "logs", logs_url)
+            .title("Pulse - Logs")
+            .inner_size(900.0, 550.0)
+            .build()
+            .map(|_| ())
+            .map_err(|e| format!("创建日志窗口失败: {}", e))
+    }
+}
+
 /** 从操作系统应用数据目录加载 environments.json */
 #[tauri::command]
 fn load_environments(app: AppHandle) -> Result<EnvironmentData, String> {
@@ -776,8 +808,9 @@ async fn run_collection_test(
  *
  * 1. 初始化 LogStore（Mutex 包裹的 Vec，线程共享）
  * 2. 注册所有 Tauri 命令
- * 3. 在 setup 中创建第二个"日志"窗口（900×550）
- * 4. 启动 GUI 事件循环
+ * 3. 如果启动参数含 --logs，在 setup 中创建日志窗口（900×550）
+ * 4. 日志窗口也可通过 Ctrl+Shift+L 快捷键（或 toggle_log_window 命令）按需打开
+ * 5. 启动 GUI 事件循环
  */
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -791,6 +824,7 @@ pub fn run() {
             send_request,
             get_logs,
             clear_logs,
+            toggle_log_window,
             load_environments,
             save_environments,
             load_collections,
@@ -810,26 +844,28 @@ pub fn run() {
             run_collection_test,
         ])
         .setup(|app| {
-            // 创建独立的日志查看窗口（标签为 "logs"）
-            let app_handle = app.handle().clone();
-            let logs_url = if tauri::is_dev() {
-                tauri::WebviewUrl::External(
-                    "http://localhost:1420".parse().expect("valid dev URL"),
-                )
-            } else {
-                tauri::WebviewUrl::App("index.html".into())
-            };
+            // 检查启动参数 --logs，按需创建日志窗口（不再自动随主窗口启动）
+            if std::env::args().any(|a| a == "--logs") {
+                let app_handle = app.handle().clone();
+                let logs_url = if tauri::is_dev() {
+                    tauri::WebviewUrl::External(
+                        "http://localhost:1420".parse().expect("valid dev URL"),
+                    )
+                } else {
+                    tauri::WebviewUrl::App("index.html".into())
+                };
 
-            match tauri::WebviewWindowBuilder::new(&app_handle, "logs", logs_url)
-                .title("Pulse - Logs")
-                .inner_size(900.0, 550.0)
-                .build()
-            {
-                Ok(_) => {
-                    #[cfg(feature = "mock-server")]
-                    eprintln!("[logs] Log viewer window created");
+                match tauri::WebviewWindowBuilder::new(&app_handle, "logs", logs_url)
+                    .title("Pulse - Logs")
+                    .inner_size(900.0, 550.0)
+                    .build()
+                {
+                    Ok(_) => {
+                        #[cfg(feature = "mock-server")]
+                        eprintln!("[logs] Log viewer window created via --logs flag");
+                    }
+                    Err(e) => eprintln!("[logs] Failed to create log viewer window: {}", e),
                 }
-                Err(e) => eprintln!("[logs] Failed to create log viewer window: {}", e),
             }
 
             // 启动 Mock HTTP 测试服务器（feature=mock-server 时生效）

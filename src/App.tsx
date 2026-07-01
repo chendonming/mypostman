@@ -195,6 +195,15 @@ export default function App() {
           return { ...cmd, handler: () => setEditorOpen(true) };
         case "openSettings":
           return { ...cmd, handler: () => getHandlers().openSettingsDialog() };
+        case "toggleLogs":
+          return {
+            ...cmd,
+            handler: () => {
+              invoke("toggle_log_window").catch((e) =>
+                console.error("toggle_log_window failed:", e)
+              );
+            },
+          };
         case "closeTab":
           return {
             ...cmd,

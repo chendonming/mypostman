@@ -206,4 +206,13 @@ export const DEFAULT_COMMANDS: CommandDef[] = [
     scope: "global",
     handler: () => {},
   },
+  // ── Developer Tools ──
+  {
+    id: "toggleLogs",
+    label: "Toggle HTTP Logs",
+    category: "Developer Tools",
+    defaultKeys: [combo("ctrl+shift+l"), combo("meta+shift+l")],
+    scope: "global",
+    handler: () => {},
+  },
 ];

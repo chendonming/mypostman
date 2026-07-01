@@ -6,16 +6,19 @@
  * 程序入口
  *
  * 双模式入口：
- * - 不带参数 → 启动 Tauri GUI 应用（委托给 pulse_lib::run()）
- * - 带参数    → 进入 CLI 命令行模式（委托给 pulse_lib::cli_run()）
+ * - 不带参数或仅带 --logs → 启动 Tauri GUI 应用（委托给 pulse_lib::run()）
+ *   --logs 表示启动时同时打开日志查看器窗口
+ * - 其他参数 → 进入 CLI 命令行模式（委托给 pulse_lib::cli_run()）
  *   CLI 支持 request/test/collections/environments/export/import 子命令
  */
 fn main() {
-    // 如果有命令行参数，走 CLI 模式
-    if std::env::args().len() > 1 {
+    // 检查是否有 CLI 命令参数（排除 --logs 标志）
+    let has_cli_command = std::env::args().skip(1).any(|a| a != "--logs");
+
+    if has_cli_command {
         pulse_lib::cli_run();
     } else {
-        // 无参数则启动 Tauri GUI
+        // --logs 标志由 pulse_lib::run() 内部处理
         pulse_lib::run()
     }
 }
