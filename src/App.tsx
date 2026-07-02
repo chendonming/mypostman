@@ -459,6 +459,7 @@ export default function App() {
                   onRequestTabChange={state.setRequestTab}
                   flashCommand={flashCommand}
                   shortcutHints={shortcutHints}
+                  theme={state.settings.theme}
                 />
               </Panel>
 

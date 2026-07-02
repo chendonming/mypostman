@@ -115,7 +115,7 @@ function createBlankTab(overrides?: Partial<TabState>): TabState {
     method: "GET" as HttpMethod,
     url: "",
     headers: [{ key: "", value: "", enabled: true }],
-    body: "",
+    body: "{\n  \n}",
     bodyParams: [{ key: "", value: "", enabled: true }],
     bodyFormData: [{ key: "", value: "", enabled: true, isFile: false, filePath: null, fileName: null, fileContentType: "" }],
     contentType: "application/json",

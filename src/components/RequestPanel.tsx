@@ -1,6 +1,7 @@
 import { useRef } from "react";
 import type { HeaderInput, FormDataEntry, RequestTab, HttpMethod, AuthType } from "../types";
 import AuthPanel from "./AuthPanel";
+import JsonEditor from "./JsonEditor";
 
 /**
  * 请求面板属性
@@ -51,6 +52,8 @@ interface RequestPanelProps {
   onRequestTabChange: (tab: RequestTab) => void;
   flashCommand: string | null;
   shortcutHints: { commandId: string; label: string }[];
+  /** "dark" | "light" 主题，传递给 JsonEditor */
+  theme: string;
 }
 
 /** 支持的 HTTP 方法列表 */
@@ -137,6 +140,7 @@ export default function RequestPanel({
   onRequestTabChange,
   flashCommand,
   shortcutHints,
+  theme,
 }: RequestPanelProps) {
   const urlRef = useRef<HTMLInputElement>(null);
 
@@ -394,7 +398,14 @@ export default function RequestPanel({
       </div>
 
       {/* Tab 内容区域 */}
-      <div className="max-h-52 overflow-y-auto border-t border-pulse-border">
+      <div
+        className="max-h-52 border-t border-pulse-border"
+        style={
+          requestTab === "body" && contentType === "application/json"
+            ? { overflowY: "hidden" as const, height: "208px" }
+            : { overflowY: "auto" as const }
+        }
+      >
         {/* Auth Tab */}
         {requestTab === "auth" && (
           <AuthPanel
@@ -572,7 +583,13 @@ export default function RequestPanel({
 
         {/* Body Tab：Content-Type 选择 + 请求体编辑器 */}
         {requestTab === "body" && (
-          <div className="p-2 space-y-2">
+          <div
+            className={
+              contentType === "application/json"
+                ? "p-2 flex flex-col h-full min-h-0 gap-2"
+                : "p-2 space-y-2"
+            }
+          >
             <div className="flex items-center gap-2">
               <select
                 value={contentType}
@@ -808,6 +825,11 @@ export default function RequestPanel({
                 >
                   + Add field
                 </button>
+              </div>
+            ) : contentType === "application/json" ? (
+              /* application/json → JSON 编辑器（flex 容器填满剩余空间） */
+              <div className="flex-1 min-h-0 overflow-hidden">
+                <JsonEditor value={body} onChange={onBodyChange} theme={theme} />
               </div>
             ) : (
               <textarea
